@@ -28,6 +28,7 @@
   --shell-radius: 14px;
   --speed: 420ms;
   --block-scale: 0.55; /* mobile-first: small block; desktop bumps to 1 */
+  --sheet-peek: 54px;  /* height of the collapsed bottom-sheet handle */
 }
 
 * { box-sizing: border-box; }
@@ -46,7 +47,7 @@ html, body {
 body {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
@@ -106,18 +107,19 @@ h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
 .ghost-btn.small { padding: 5px 10px; font-size: 12px; }
 
 /* ---------------- Layout (mobile-first) ----------------
-   On phones the three regions stack: stage, then controls, then the
-   scrolling detail panel. `display: contents` hoists the stage/panel out of
-   .layout so their order can interleave with the controls (a body sibling).
-   The desktop two-column grid is layered on at min-width: 900px. */
-.layout { display: contents; }
-.stage    { order: 1; }
-.controls { order: 2; }
-.panel    { order: 3; }
+   On phones the stage fills the screen and the controls + detail panel live in
+   a bottom sheet, collapsed to a drag handle. On desktop (min-width: 900px) the
+   .sheet / .sheet-inner wrappers dissolve (display: contents) and a grid places
+   the stage, panel and control bar in their classic positions. */
+.workspace {
+  flex: 1; min-height: 0; position: relative;
+  padding-bottom: var(--sheet-peek);   /* reserve room for the collapsed handle */
+}
 
 /* ---------------- Stage ---------------- */
 .stage {
   position: relative;
+  height: 100%;
   overflow: hidden;
   touch-action: pan-y;            /* vertical = page scroll; horizontal = swipe-to-advance */
   border-bottom: 1px solid var(--line);
@@ -125,8 +127,42 @@ h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
     radial-gradient(1200px 600px at 50% -10%, #16224a 0%, transparent 60%),
     radial-gradient(900px 500px at 50% 120%, #101a38 0%, transparent 55%),
     var(--bg);
-  min-height: 56vh;
 }
+
+/* ---------------- Bottom sheet (mobile) ---------------- */
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+  height: 86dvh; max-height: 86dvh;
+  display: flex; flex-direction: column;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -14px 44px rgba(0,0,0,.55);
+  transform: translateY(calc(86dvh - var(--sheet-peek)));
+  transition: transform 320ms cubic-bezier(.32,.72,0,1);
+}
+.sheet.open { transform: translateY(0); }
+.sheet-handle {
+  flex: none; height: var(--sheet-peek); width: 100%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  background: transparent; border: 0; color: var(--muted);
+  cursor: grab; touch-action: none; user-select: none;
+}
+.sheet-handle:active { cursor: grabbing; }
+.grabber { width: 42px; height: 5px; border-radius: 3px; background: var(--muted-2); }
+.sheet-handle-row { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; letter-spacing: .01em; }
+.chevron { display: inline-block; line-height: 1; font-size: 14px; transition: transform 320ms; }
+.sheet.open .chevron { transform: rotate(180deg); }
+.sheet-inner {
+  flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  display: flex; flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.sheet-scrim {
+  position: fixed; inset: 0; z-index: 45; background: rgba(4,8,18,.5);
+  opacity: 0; pointer-events: none; transition: opacity 260ms;
+}
+.sheet-scrim.show { opacity: 1; pointer-events: auto; }
 
 .u-path { position: absolute; inset: 0; width: 100%; height: 100%; }
 #u-line { stroke: var(--line); stroke-width: 0.5; stroke-linecap: round; stroke-linejoin: round; }
@@ -421,13 +457,22 @@ kbd {
 
 @media (min-width: 900px) {
   :root { --block-scale: 1; }
-  .layout {
-    display: grid; grid-template-columns: 1fr 380px;
-    flex: 1; min-height: 0;
+
+  /* Dissolve the sheet wrappers so the stage, panel and controls become direct
+     grid items again: stage top-left, panel top-right, controls full-width bottom. */
+  .workspace {
+    flex: 1; min-height: 0; padding-bottom: 0;
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    grid-template-rows: 1fr auto;
+    grid-template-areas: "stage panel" "controls controls";
   }
-  .stage { order: 0; min-height: 520px; border-bottom: 0; }
+  .stage { grid-area: stage; height: auto; min-height: 520px; border-bottom: 0; }
+  .sheet, .sheet-inner { display: contents; }
+  .sheet-handle, .sheet-scrim { display: none; }
+  .controls { grid-area: controls; }
   .panel {
-    order: 0; overflow-y: auto;
+    grid-area: panel; overflow-y: auto;
     border-top: 0; border-left: 1px solid var(--line);
   }
   .pod { top: 3.5%; padding: 10px 14px; }

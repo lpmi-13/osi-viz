@@ -72,6 +72,14 @@ debug a TLS handshake, so the tool speaks that language.
 | **Round trip** | Follow the response back from server to client, not just the request |
 | **Reduce motion** | Honoured automatically from your OS setting; toggle to override |
 
+## Mobile
+
+On phones the stage fills the screen and the controls + detail panel collapse into
+a **bottom sheet** — tap or drag the handle up to scrub, toggle, and read each step;
+tap the scrim or drag down to dismiss. Swiping across the stage advances the journey
+with the sheet closed. On desktop the sheet dissolves back into the classic
+stage / side-panel / control-bar layout.
+
 ## Accessibility
 
 - Every layer is labelled with text, never colour alone.

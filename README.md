@@ -47,10 +47,16 @@ debug a TLS handshake, so the tool speaks that language.
   watch **Signal purity** swing from ~5 % (a tiny JSON blob is almost all envelope)
   to ~90 % (a full-MSS segment is almost all data). This is the honest lesson:
   per-packet overhead is roughly fixed, so efficiency is all about payload size.
-- **Diagnose** — pick a real production failure (connection refused, mTLS expiry,
-  MTU black hole, overlay black hole). Guess which layer breaks, then watch the
-  packet fail at exactly that point, with the real `tcpdump` / `ss` / `openssl`
-  output you'd use to find it and the fix.
+  Flip **Round trip** on to send the response back too — the block bounces at the
+  server and returns, and the big response reads far purer than the tiny request.
+  Flip **Handshake** on to prepend the TCP three-way handshake: three payload-less
+  segments at **0 % signal**, with each end's connection state advancing to
+  ESTABLISHED before any data moves.
+- **Diagnose** — pick a real production failure (connection refused via SYN→RST,
+  a firewall silently dropping the SYN, mTLS expiry, MTU black hole, overlay black
+  hole). Guess which layer breaks, then watch the packet fail at exactly that
+  point — including mid-handshake, with the connection state shown on each pod —
+  using the real `tcpdump` / `ss` / `openssl` output you'd use to find it and the fix.
 
 ## Controls
 
@@ -62,6 +68,8 @@ debug a TLS handshake, so the tool speaks that language.
 | **Highlight readers** | Dims everything a component can't see — every layer is a blind courier reading only its own envelope |
 | **Tool output** | Shows the real command output at each step |
 | **TLS / Cross-node** | Toggle encryption and the inter-node VXLAN overlay |
+| **Handshake** | Prepend the TCP three-way handshake (SYN/SYN-ACK/ACK) with live connection state |
+| **Round trip** | Follow the response back from server to client, not just the request |
 | **Reduce motion** | Honoured automatically from your OS setting; toggle to override |
 
 ## Accessibility
@@ -74,9 +82,8 @@ debug a TLS handshake, so the tool speaks that language.
 
 ## Known simplifications / not yet built
 
-- Single **request** direction only. A full **round trip** (response coming back,
-  and the TCP `SYN`/`SYN-ACK`/`ACK` handshake) is the natural next step — several
-  Diagnose scenarios (RST, "no SYN-ACK") are inherently bidirectional.
+- Diagnose scenarios stop at the first failure — a broken request never produces
+  a response, which is itself the point (no answer comes back).
 - Header byte sizes are representative, not exact per-packet (TLS/TCP options vary).
 - L4 is modelled as TCP; QUIC/HTTP-3 over UDP is left for a later pass.
 

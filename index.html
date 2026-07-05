@@ -35,11 +35,13 @@
         <span class="pod-role">Client pod</span>
         <span class="pod-name">frontend</span>
         <span class="pod-meta">10.244.1.5 · node worker-1</span>
+        <span class="pod-state" id="pod-send-state" hidden></span>
       </div>
       <div class="pod pod-recv" id="pod-recv">
         <span class="pod-role">Server pod</span>
         <span class="pod-name">api-service</span>
         <span class="pod-meta">10.244.2.10 · node worker-2</span>
+        <span class="pod-state" id="pod-recv-state" hidden></span>
       </div>
 
       <!-- U-path backdrop -->
@@ -160,6 +162,8 @@
     <div class="ctl-group toggles">
       <button id="tg-tls" class="toggle" aria-pressed="true">TLS</button>
       <button id="tg-cross" class="toggle" aria-pressed="true">Cross-node</button>
+      <button id="tg-handshake" class="toggle" aria-pressed="false">Handshake</button>
+      <button id="tg-roundtrip" class="toggle" aria-pressed="false">Round trip</button>
       <button id="tg-readers" class="toggle" aria-pressed="false">Highlight readers</button>
       <button id="tg-tool" class="toggle" aria-pressed="false">Tool output</button>
       <button id="tg-motion" class="toggle" aria-pressed="false" title="Reduce animation">Reduce motion</button>
@@ -181,6 +185,8 @@
         <li><b>Signal purity</b> shows how little of the packet is real application data. Hit <b>↻ New packet</b> in Explore mode to see it swing with payload size.</li>
         <li><b>Highlight readers</b> dims everything a given component can't see — proof that each layer is a blind courier reading only its own envelope.</li>
         <li><b>Tool output</b> reveals the real <code>tcpdump</code> / <code>ss</code> / <code>ip</code> you'd run at each step.</li>
+        <li><b>Handshake</b> prepends the TCP three-way handshake (SYN → SYN-ACK → ACK). These segments carry no data at all — 0% signal — and you can watch each end's connection state advance to ESTABLISHED.</li>
+        <li><b>Round trip</b> adds the response coming back — the block bounces at the server and returns to the client. A big response is far purer than the tiny request that asked for it.</li>
         <li><b>Diagnose mode</b> plays a real production failure and asks you to spot the breaking layer.</li>
       </ul>
       <p class="muted small">Layer model: we use the practical TCP/IP view — <b>Application</b> (HTTP, with TLS as an optional wrapper) over <b>Transport</b> (TCP) over <b>Network</b> (IP), plus the <b>Overlay</b> (VXLAN) tunnel. No OSI L5/L6 numbering, because in the cloud nobody debugs "a Layer 6 problem" — they debug a TLS handshake.</p>

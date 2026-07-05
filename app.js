@@ -73,7 +73,8 @@
       for (let i = 0; i < all.length; i++) { if (all[i].id === sc.breakId) { cut = i; break; } }
       state.steps = all.slice(0, cut + 1);
       state.broken = true;
-      state.tls = sc.opts.tls; state.crossNode = sc.opts.crossNode;
+      // Note: we don't mutate state.tls/crossNode/handshake here — those are the
+      // user's Explore preferences. Diagnose runs entirely off the scenario opts.
       state.payload = { bytes: sc.payload.bytes, text: sc.payload.text };
     }
     state.anchors = computeAnchors(state.steps);
@@ -136,9 +137,12 @@
     podSend.classList.toggle("active", step.leg === "L");
     podRecv.classList.toggle("active", step.leg === "R");
 
-    // TCP connection-state badges (only while the handshake is in play)
-    if (state.handshake) {
-      const st = step.state || { c: "ESTABLISHED", s: "ESTABLISHED" };
+    // TCP connection-state badges — while exploring the handshake, or on the
+    // handshake steps of a Diagnose scenario (with a failure-state override).
+    const showBadges = (state.mode === "explore" && state.handshake) || !!step.state;
+    if (showBadges) {
+      let st = step.state || { c: "ESTABLISHED", s: "ESTABLISHED" };
+      if (atBreak && state.scenario && state.scenario.breakState) st = state.scenario.breakState;
       podSendState.hidden = false; podRecvState.hidden = false;
       podSendState.textContent = st.c; podRecvState.textContent = st.s;
     } else {
@@ -371,10 +375,13 @@
   }
 
   function syncToggles() {
-    $("#tg-tls").setAttribute("aria-pressed", state.tls);
-    $("#tg-cross").setAttribute("aria-pressed", state.crossNode);
-    $("#tg-roundtrip").setAttribute("aria-pressed", state.roundTrip);
-    $("#tg-handshake").setAttribute("aria-pressed", state.handshake);
+    // In Diagnose, the config toggles are disabled and reflect the scenario;
+    // in Explore they reflect (and drive) the user's own preferences.
+    const o = (state.mode === "diagnose" && state.scenario) ? state.scenario.opts : state;
+    $("#tg-tls").setAttribute("aria-pressed", !!o.tls);
+    $("#tg-cross").setAttribute("aria-pressed", !!o.crossNode);
+    $("#tg-roundtrip").setAttribute("aria-pressed", !!o.roundTrip);
+    $("#tg-handshake").setAttribute("aria-pressed", !!o.handshake);
     $("#tg-readers").setAttribute("aria-pressed", state.highlightReaders);
     $("#tg-tool").setAttribute("aria-pressed", state.showTool);
     $("#tg-motion").setAttribute("aria-pressed", state.reduceMotion);

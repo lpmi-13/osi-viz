@@ -52,10 +52,11 @@ debug a TLS handshake, so the tool speaks that language.
   Flip **Handshake** on to prepend the TCP three-way handshake: three payload-less
   segments at **0 % signal**, with each end's connection state advancing to
   ESTABLISHED before any data moves.
-- **Diagnose** — pick a real production failure (connection refused, mTLS expiry,
-  MTU black hole, overlay black hole). Guess which layer breaks, then watch the
-  packet fail at exactly that point, with the real `tcpdump` / `ss` / `openssl`
-  output you'd use to find it and the fix.
+- **Diagnose** — pick a real production failure (connection refused via SYN→RST,
+  a firewall silently dropping the SYN, mTLS expiry, MTU black hole, overlay black
+  hole). Guess which layer breaks, then watch the packet fail at exactly that
+  point — including mid-handshake, with the connection state shown on each pod —
+  using the real `tcpdump` / `ss` / `openssl` output you'd use to find it and the fix.
 
 ## Controls
 
@@ -81,11 +82,8 @@ debug a TLS handshake, so the tool speaks that language.
 
 ## Known simplifications / not yet built
 
-- The **Handshake** toggle shows the three-way handshake as a compact
-  send → transit → receive per segment; it isn't wired into the Diagnose
-  scenarios yet (e.g. making "connection refused" literally a SYN → RST exchange).
-- Diagnose scenarios are request-only: a failed request never produces a response,
-  which is itself the point (no answer comes back).
+- Diagnose scenarios stop at the first failure — a broken request never produces
+  a response, which is itself the point (no answer comes back).
 - Header byte sizes are representative, not exact per-packet (TLS/TCP options vary).
 - L4 is modelled as TCP; QUIC/HTTP-3 over UDP is left for a later pass.
 

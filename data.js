@@ -404,18 +404,36 @@
     {
       key: "refused",
       label: "Connection refused — nothing listening on the port",
-      opts: { tls: false, crossNode: true },
+      opts: { tls: false, crossNode: true, handshake: true },
       payload: { bytes: 17, text: '{"user_id": 12345}' },
-      breakId: "tcp-strip",
+      breakId: "h-syn-recv",
       quiz: { options: ["Application", "Transport", "Network", "Overlay"], answer: "Transport" },
       failLabel: "RST",
+      breakState: { c: "SYN-SENT", s: "no listener" },
       verdict: {
         symptom: "curl: (7) Failed to connect — Connection refused, instantly.",
-        cause: "The packet reached the server, but nothing is listening on port 443. The kernel answers the SYN with a TCP RST. Encapsulation never even reaches the application.",
+        cause: "The SYN reached the server, but nothing is listening on 443. The kernel answers immediately with a TCP RST instead of a SYN-ACK, so the handshake never completes — no data is ever sent.",
         fix: "Compare the Service targetPort with the container's listening port (`ss -tlnp`). Start the process or fix the port mapping."
       },
       tool: { cmd: "ss -tlnp 'sport = :443'", out:
-        "# (no rows) — nothing is listening on :443\ntcpdump: 10.244.1.5.52134 > 10.244.2.10.443: Flags [S]\n         10.244.2.10.443 > 10.244.1.5.52134: Flags [R.]   <-- RST" }
+        "# (no rows) — nothing is listening on :443\ntcpdump: 10.244.1.5.52134 > 10.244.2.10.443: Flags [S]\n         10.244.2.10.443 > 10.244.1.5.52134: Flags [R.]   <-- RST, not SYN-ACK" }
+    },
+    {
+      key: "synack-drop",
+      label: "SYN sent, no reply — a firewall drops the handshake",
+      opts: { tls: true, crossNode: true, handshake: true },
+      payload: { bytes: 17, text: '{"user_id": 12345}' },
+      breakId: "h-syn-net",
+      quiz: { options: ["Application", "Transport", "Network", "Overlay"], answer: "Network" },
+      failLabel: "⌀ no reply",
+      breakState: { c: "SYN-SENT ↻", s: "—" },
+      verdict: {
+        symptom: "The connection hangs for ~30 s, then times out. No 'refused' — just silence.",
+        cause: "A security-group / firewall rule on the path silently drops the SYN. Because nothing answers, the client keeps retransmitting and eventually gives up. The absence of a RST is the tell: a closed port refuses (RST, instant); a firewall drops (silence, timeout).",
+        fix: "Open the port for the SYN's path: check VPC security groups / NACLs and Cilium/Calico NetworkPolicy. Probe with `nc -vz 10.244.2.10 443`."
+      },
+      tool: { cmd: "tcpdump -ni any 'tcp port 443'", out:
+        "10.244.1.5.52134 > 10.244.2.10.443: Flags [S]   # t=0\n10.244.1.5.52134 > 10.244.2.10.443: Flags [S]   # t=1  retransmit\n10.244.1.5.52134 > 10.244.2.10.443: Flags [S]   # t=3  retransmit\n# ...no reply, ever" }
     },
     {
       key: "mtls",

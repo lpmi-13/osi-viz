@@ -9,30 +9,42 @@
 
   // ---------- geometry ----------
   const LX = 22, RX = 78, TY = 26, BY = 66, UNDER = 80;
+  // Each step belongs to a segment 1-6 of the round-trip path. The block travels
+  // the U forward (request, 1→3) and, on a round trip, back again (response, 4→6).
+  const SEG = {
+    1: [[LX, TY], [LX, BY]],       // request: down the client (left) leg
+    2: [[LX, UNDER], [RX, UNDER]], // request: across the underlay →
+    3: [[RX, BY], [RX, TY]],       // request: up the server (right) leg
+    4: [[RX, TY], [RX, BY]],       // response: down the server (right) leg
+    5: [[RX, UNDER], [LX, UNDER]], // response: across the underlay ←
+    6: [[LX, BY], [LX, TY]]        // response: up the client (left) leg
+  };
   function computeAnchors(steps) {
-    const groups = { L: [], B: [], R: [] };
-    steps.forEach(function (s, i) { groups[s.leg].push(i); });
+    const groups = {};
+    steps.forEach(function (s, i) { (groups[s.seg] = groups[s.seg] || []).push(i); });
     const A = new Array(steps.length);
-    function place(idxArr, fn) {
-      const n = idxArr.length;
-      idxArr.forEach(function (idx, k) { A[idx] = fn(n > 1 ? k / (n - 1) : 0.5); });
-    }
-    place(groups.L, function (p) { return { x: LX, y: TY + (BY - TY) * p }; });
-    place(groups.B, function (p) { return { x: LX + (RX - LX) * p, y: UNDER }; });
-    place(groups.R, function (p) { return { x: RX, y: BY + (TY - BY) * p }; });
+    Object.keys(groups).forEach(function (seg) {
+      const arr = groups[seg], m = arr.length, st = SEG[seg][0], en = SEG[seg][1];
+      arr.forEach(function (idx, k) {
+        const p = m > 1 ? k / (m - 1) : 0.5;
+        A[idx] = { x: st[0] + (en[0] - st[0]) * p, y: st[1] + (en[1] - st[1]) * p };
+      });
+    });
     return A;
   }
 
   // ---------- state ----------
   const state = {
     mode: "explore",
-    tls: true, crossNode: true,
+    tls: true, crossNode: true, roundTrip: false,
     highlightReaders: false, showTool: false, reduceMotion: false,
     playing: false, speed: 1, progress: 0, _last: 0,
     payload: D.newPayload(),
+    responsePayload: D.newResponse(),
     steps: [], anchors: [],
     scenario: null, broken: false, revealed: false, lastIdx: -1
   };
+  function payloadFor(step) { return step.dir === "resp" ? state.responsePayload : state.payload; }
 
   // ---------- element refs ----------
   const stage = $("#stage");
@@ -55,7 +67,7 @@
   function rebuildSteps(keepRatio) {
     const ratio = keepRatio ? state.progress : 0;
     if (state.mode === "explore") {
-      state.steps = D.buildSteps({ tls: state.tls, crossNode: state.crossNode });
+      state.steps = D.buildSteps({ tls: state.tls, crossNode: state.crossNode, roundTrip: state.roundTrip });
       state.broken = false;
     } else {
       const sc = state.scenario;
@@ -77,12 +89,11 @@
   function currentIdx() { return Math.round(stepFloat()); }
 
   // ---------- byte / purity maths ----------
-  function bytesFor(layer) { return layer === "body" ? state.payload.bytes : D.SIZES[layer]; }
-  function purity(shells) {
+  function bytesFor(layer, pb) { return layer === "body" ? pb : D.SIZES[layer]; }
+  function purity(shells, pb) {
     let total = 0;
-    shells.forEach(function (l) { total += bytesFor(l); });
-    const sig = state.payload.bytes;
-    return { total: total, signalPct: (sig / total) * 100 };
+    shells.forEach(function (l) { total += bytesFor(l, pb); });
+    return { total: total, signalPct: (pb / total) * 100 };
   }
 
   // ---------- rendering ----------
@@ -106,6 +117,7 @@
     // entered the breaking step in (still wrapped / still sealed).
     const shellStep = (atBreak && idx > 0) ? steps[idx - 1] : step;
     const outer = shellStep.shells[shellStep.shells.length - 1];
+    const pl = payloadFor(step);
 
     // shells present / fields / dim / cipher
     ["vxlan", "ip", "tcp", "tls", "http", "body"].forEach(function (layer) {
@@ -116,14 +128,14 @@
       el.classList.toggle("dimmed", dim);
       if (layer !== "body") {
         const fEl = el.querySelector(":scope > .fields");
-        if (fEl) fEl.textContent = present && D.FIELDS[layer] ? D.FIELDS[layer](shellStep.ttl) : "";
+        if (fEl) fEl.textContent = present && D.FIELDS[layer] ? D.FIELDS[layer](shellStep) : "";
       }
     });
-    coreText.textContent = state.payload.text;
+    coreText.textContent = pl.text;
     block.classList.toggle("ciphered", shellStep.ciphered);
 
-    // endpoints
-    podSend.classList.toggle("active", step.leg !== "R");
+    // endpoints — the left leg is always the client, the right leg the server
+    podSend.classList.toggle("active", step.leg === "L");
     podRecv.classList.toggle("active", step.leg === "R");
 
     // reader callout
@@ -156,7 +168,7 @@
     // u-progress
     uProgress.style.strokeDashoffset = uLen * (1 - state.progress);
 
-    renderPanel(step, meta, idx, n, atBreak, shellStep);
+    renderPanel(step, meta, idx, n, atBreak, shellStep, pl);
 
     // scrubber + labels
     const scrubber = $("#scrubber");
@@ -165,27 +177,28 @@
 
     // announce on step change
     if (idx !== state.lastIdx) {
-      const p = purity(step.shells);
+      const p = purity(shellStep.shells, pl.bytes);
       live.textContent = "Step " + (idx + 1) + " of " + n + ". " + meta.title +
         ". Signal purity " + Math.round(p.signalPct) + " percent.";
       state.lastIdx = idx;
     }
   }
 
-  function renderPanel(step, meta, idx, n, atBreak, shellStep) {
+  function renderPanel(step, meta, idx, n, atBreak, shellStep, pl) {
     $("#step-layer-chip").textContent = meta.chip;
-    $("#step-counter").textContent = "Step " + (idx + 1) + " / " + n;
+    $("#step-counter").textContent = "Step " + (idx + 1) + " / " + n +
+      (step.dir === "resp" ? " · response" : (state.roundTrip ? " · request" : ""));
     $("#step-title").textContent = meta.title;
     $("#step-why").textContent = meta.why;
 
     // purity (reflects the packet's actual on-wire state)
-    const p = purity(shellStep.shells);
+    const p = purity(shellStep.shells, pl.bytes);
     const sig = Math.round(p.signalPct);
     $("#purity-pct").textContent = sig + "%";
     $("#purity-signal").textContent = sig + "%";
     $("#purity-meta").textContent = (100 - sig) + "%";
     $("#purity-bytes").textContent = p.total.toLocaleString() + " bytes total · " +
-      state.payload.bytes.toLocaleString() + " B payload";
+      pl.bytes.toLocaleString() + " B payload";
     $("#purity-meter").style.background =
       "conic-gradient(var(--l-body) 0% " + sig + "%, var(--muted-2) " + sig + "% 100%)";
 
@@ -195,7 +208,7 @@
     const order = shellStep.shells.slice(); // inner→outer
     order.forEach(function (layer) {
       const seg = document.createElement("span");
-      const b = bytesFor(layer);
+      const b = bytesFor(layer, pl.bytes);
       seg.style.width = (b / p.total * 100) + "%";
       seg.style.background = "var(" + D.LAYERS[layer].varColor + ")";
       seg.title = D.LAYERS[layer].name + ": " + b.toLocaleString() + " B";
@@ -213,7 +226,7 @@
         '<span class="swatch" style="background:var(' + L.varColor + ')"></span>' +
         '<span><span class="aname">' + L.name + '</span> ' +
         '<span class="adesc">— ' + L.desc + '</span></span>' +
-        '<span class="abytes">' + bytesFor(layer).toLocaleString() + ' B</span>';
+        '<span class="abytes">' + bytesFor(layer, pl.bytes).toLocaleString() + ' B</span>';
       list.appendChild(li);
     });
 
@@ -224,8 +237,8 @@
       let t = meta.tool;
       if (atBreak && state.scenario) t = state.scenario.tool;
       let out = t.out;
-      if (step.id === "body" && !out) {
-        out = state.payload.text + "\n\n# " + state.payload.bytes.toLocaleString() + " bytes of actual intent";
+      if ((step.id === "body" || step.id === "r-body") && !out) {
+        out = pl.text + "\n\n# " + pl.bytes.toLocaleString() + " bytes of actual intent";
       }
       $("#tool-cmd").textContent = "$ " + t.cmd;
       $("#tool-out").textContent = out || "";
@@ -297,7 +310,7 @@
     $("#diagnose-card").hidden = mode !== "diagnose";
 
     const scenarioDriven = mode === "diagnose";
-    ["tg-tls", "tg-cross", "btn-newpacket"].forEach(function (id) {
+    ["tg-tls", "tg-cross", "tg-roundtrip", "btn-newpacket"].forEach(function (id) {
       $("#" + id).disabled = scenarioDriven;
     });
 
@@ -348,6 +361,7 @@
   function syncToggles() {
     $("#tg-tls").setAttribute("aria-pressed", state.tls);
     $("#tg-cross").setAttribute("aria-pressed", state.crossNode);
+    $("#tg-roundtrip").setAttribute("aria-pressed", state.roundTrip);
     $("#tg-readers").setAttribute("aria-pressed", state.highlightReaders);
     $("#tg-tool").setAttribute("aria-pressed", state.showTool);
     $("#tg-motion").setAttribute("aria-pressed", state.reduceMotion);
@@ -373,6 +387,9 @@
     $("#tg-cross").addEventListener("click", function () {
       state.crossNode = !state.crossNode; syncToggles(); rebuildSteps(true); render();
     });
+    $("#tg-roundtrip").addEventListener("click", function () {
+      state.roundTrip = !state.roundTrip; syncToggles(); rebuildSteps(true); render();
+    });
     $("#tg-readers").addEventListener("click", function () {
       state.highlightReaders = !state.highlightReaders; syncToggles(); render();
     });
@@ -385,7 +402,7 @@
       syncToggles();
     });
     $("#btn-newpacket").addEventListener("click", function () {
-      state.payload = D.newPayload(); render();
+      state.payload = D.newPayload(); state.responsePayload = D.newResponse(); render();
     });
 
     // modes

@@ -19,13 +19,16 @@
   // Fixed header sizes in bytes (body is the variable payload).
   const SIZES = { http: 80, tls: 29, tcp: 20, ip: 20, vxlan: 50 };
 
-  // Mono field text shown on each shell tab.
+  // Mono field text shown on each shell tab. `s` is the step (reads .ttl, .dir);
+  // on the response leg the source/destination fields are swapped.
   const FIELDS = {
-    http:  () => "GET /api/users/12345 · application/json",
-    tls:   () => "TLSv1.3 · AES-128-GCM · AppData(23)",
-    tcp:   () => ":52134 → :443 · seq 1001 · [ACK,PSH]",
-    ip:    (ttl) => "10.244.1.5 → 10.244.2.10 · TTL " + ttl + " · TCP",
-    vxlan: () => "192.168.1.10 → .11 · UDP4789 · VNI 42"
+    http:  (s) => s.dir === "resp" ? "HTTP/2 200 OK · application/json" : "GET /api/users/12345 · application/json",
+    tls:   (s) => "TLSv1.3 · AES-128-GCM · AppData(23)",
+    tcp:   (s) => s.dir === "resp" ? ":443 → :52134 · seq 5001 · [ACK,PSH]" : ":52134 → :443 · seq 1001 · [ACK,PSH]",
+    ip:    (s) => s.dir === "resp"
+      ? "10.244.2.10 → 10.244.1.5 · TTL " + s.ttl + " · TCP"
+      : "10.244.1.5 → 10.244.2.10 · TTL " + s.ttl + " · TCP",
+    vxlan: (s) => s.dir === "resp" ? "192.168.1.11 → .10 · UDP4789 · VNI 42" : "192.168.1.10 → .11 · UDP4789 · VNI 42"
   };
 
   // ---- Per-step narration + tool output ----
@@ -119,16 +122,112 @@
       reader: { who: "Application code", sees: "the raw payload — delivered" },
       tool: { cmd: "# application log", out:
         "GET /api/users/12345 200  handler=getUser  dur=1.2ms\n# payload delivered intact — 100% signal" }
+    },
+
+    // ---- Response leg (server → client) ----
+    "r-body": {
+      chip: "Application", title: "The handler builds the response",
+      why: "The server's code produces the answer the client asked for. A response usually carries far more data than the tiny request that triggered it — watch the signal purity climb.",
+      reader: { who: "Application code (server)", sees: "the response payload" },
+      tool: { cmd: "# handler return value", out: null }
+    },
+    "r-http": {
+      chip: "Application", title: "HTTP frames the 200 response",
+      why: "A status line and headers are added so the client knows the request succeeded and how to read the body.",
+      reader: { who: "HTTP library", sees: "status, headers + body" },
+      tool: { cmd: "# response head", out:
+        "< HTTP/2 200 OK\n< content-type: application/json\n< content-length: 48" }
+    },
+    "r-tls": {
+      chip: "Application", title: "TLS encrypts the response",
+      why: "The same session key seals the response into ciphertext. The client is the only party that can read it.",
+      reader: { who: "TLS library", sees: "plaintext → ciphertext" },
+      tool: { cmd: "# envoy", out: "[info] encrypting application data on session api-service" }
+    },
+    "r-tcp": {
+      chip: "Transport", title: "TCP sends from :443 back to the client",
+      why: "Source and destination ports are swapped: the response leaves 443 for the client's ephemeral 52134, on the very same connection.",
+      reader: { who: "Kernel (TCP)", sees: "ports swapped, seq/ack advance" },
+      tool: { cmd: "ss -tiep sport = :443", out:
+        "ESTAB 0 0 10.244.2.10:443 10.244.1.5:52134\n  bytes_acked:74 bytes_sent:48" }
+    },
+    "r-ip": {
+      chip: "Network", title: "IP addresses it back to the client pod",
+      why: "Source and destination IPs swap; the packet is routed back toward 10.244.1.5.",
+      reader: { who: "Kernel routing", sees: "src/dst IP swapped" },
+      tool: { cmd: "ip route get 10.244.1.5", out:
+        "10.244.1.5 via 10.244.2.1 dev eth0 src 10.244.2.10" }
+    },
+    "r-vxlan": {
+      chip: "Overlay", title: "The CNI tunnels the response back to worker-1",
+      why: "Cross-node again, the other way: the response becomes cargo in a node-to-node VXLAN packet, worker-2 → worker-1.",
+      reader: { who: "CNI / node", sees: "outer node IPs (swapped)" },
+      tool: { cmd: "tcpdump -ni eth0 'udp port 4789'", out:
+        "IP 192.168.1.11.51002 > 192.168.1.10.4789: VXLAN, vni 42\n    IP 10.244.2.10.443 > 10.244.1.5.52134: tcp 48" }
+    },
+    "r-transit": {
+      chip: "Overlay", title: "The underlay routes the response back",
+      why: "Same blind couriers, opposite direction: routers see only the outer worker-node header.",
+      reader: { who: "Underlay router", sees: "outer node-to-node header only" },
+      tool: { cmd: "mtr -zbw 192.168.1.10", out:
+        "1. 192.168.1.11   0.0%   0.3ms\n2. 10.0.0.1       0.0%   0.5ms\n3. 192.168.1.10   0.0%   0.4ms" }
+    },
+    "r-vxlan-strip": {
+      chip: "Overlay", title: "worker-1 strips the VXLAN header",
+      why: "The client's node recognises its own outer address and peels the tunnel away.",
+      reader: { who: "Destination node (worker-1)", sees: "outer header, then discards it" },
+      tool: { cmd: "tcpdump -ni vxlan.calico", out:
+        "IP 10.244.2.10.443 > 10.244.1.5.52134: tcp 48   # decapsulated" }
+    },
+    "r-ip-strip": {
+      chip: "Network", title: "The client kernel checks the destination IP",
+      why: "Destination 10.244.1.5 matches the client pod, so the kernel accepts it and removes the IP header.",
+      reader: { who: "Kernel (IP)", sees: "dst IP matches — strip" },
+      tool: { cmd: "conntrack -L -s 10.244.2.10", out:
+        "tcp 6 ESTABLISHED src=10.244.1.5 dst=10.244.2.10 [ASSURED]" }
+    },
+    "r-tcp-strip": {
+      chip: "Transport", title: "TCP hands the bytes to the waiting socket",
+      why: "Destination port 52134 is the socket the client has been blocked on. The bytes go into its receive buffer.",
+      reader: { who: "Kernel (socket)", sees: "dst port → the open connection" },
+      tool: { cmd: "ss -tiep dst 10.244.2.10", out:
+        "ESTAB 0 0 10.244.1.5:52134 10.244.2.10:443\n  bytes_received:48" }
+    },
+    "r-tls-decrypt": {
+      chip: "Application", title: "TLS decrypts the response",
+      why: "The client turns the ciphertext back into readable JSON — the first point the client can see the answer.",
+      reader: { who: "TLS library", sees: "ciphertext → plaintext" },
+      tool: { cmd: "# client tls", out: "[info] decrypted application data" }
+    },
+    "r-app-consume": {
+      chip: "Application", title: "The client receives the response",
+      why: "The round trip is complete: the frontend has the data it asked for and can render it. Full circle — back where we started, top-left.",
+      reader: { who: "Application code (client)", sees: "the response payload — delivered" },
+      tool: { cmd: "# frontend", out: "200 OK — response rendered\n# full round trip complete" }
     }
   };
 
   const SEND_IDS = ["body", "http", "tls", "tcp", "ip"];
-  const RECV_IDS = ["vxlan-strip", "ip-strip", "tcp-strip", "tls-decrypt", "app-consume"];
+  const NET_IDS  = ["vxlan", "transit", "local"];
 
-  function legFor(id) {
-    if (SEND_IDS.indexOf(id) !== -1) return "L";
-    if (id === "vxlan" || id === "transit" || id === "local") return "B";
-    return "R";
+  function role(base) {
+    if (SEND_IDS.indexOf(base) !== -1) return "send";
+    if (NET_IDS.indexOf(base) !== -1) return "net";
+    return "recv";
+  }
+  // Which visual leg a step sits on. Legs map to sides, not to direction:
+  // the client stack is always the left leg (L), the server stack the right (R).
+  function legFor(base, dir) {
+    const r = role(base);
+    if (r === "net") return "B";
+    if (dir === "resp") return r === "send" ? "R" : "L"; // server encapsulates down R, client decaps up L
+    return r === "send" ? "L" : "R";                     // request: client down L, server up R
+  }
+  // Segment 1-6 around the U: request = 1(L↓) 2(B→) 3(R↑); response = 4(R↓) 5(B←) 6(L↑).
+  function segFor(base, dir) {
+    const r = role(base);
+    if (dir === "resp") return r === "send" ? 4 : r === "net" ? 5 : 6;
+    return r === "send" ? 1 : r === "net" ? 2 : 3;
   }
 
   function shellsFor(id, tls) {
@@ -167,21 +266,30 @@
     return send.concat(net, recv);
   }
 
-  // Full step objects (geometry + shell state). Narration merged in app.js.
-  function buildSteps(opts) {
-    const ids = buildStepIds(opts);
+  // Build step objects for one direction (geometry + shell state).
+  function legSteps(opts, dir) {
+    const baseIds = buildStepIds(opts);
     let seenTransit = false;
-    return ids.map(function (id) {
-      if (id === "transit" || legFor(id) === "R") seenTransit = true;
-      const shells = shellsFor(id, opts.tls);
+    return baseIds.map(function (base) {
+      if (base === "transit" || base === "local" || role(base) === "recv") seenTransit = true;
+      const shells = shellsFor(base, opts.tls);
       return {
-        id: id,
-        leg: legFor(id),
+        id: dir === "resp" ? "r-" + base : base,
+        dir: dir,
+        leg: legFor(base, dir),
+        seg: segFor(base, dir),
         shells: shells,
         ciphered: shells.indexOf("tls") !== -1,
         ttl: seenTransit ? 61 : 64
       };
     });
+  }
+
+  // Full journey. With opts.roundTrip, the request is followed by the response
+  // travelling back (server → client), so the block retraces the U.
+  function buildSteps(opts) {
+    const steps = legSteps(opts, "req");
+    return opts.roundTrip ? steps.concat(legSteps(opts, "resp")) : steps;
   }
 
   // ---- Failure scenarios (Diagnose mode) ----
@@ -262,21 +370,27 @@
     { w: 2, min: 1200, max: 1460, make: function (b) { return '{"records":[ …' + b.toLocaleString() + ' B, full segment… ]}'; } }
   ];
 
-  function newPayload() {
-    const total = PAYLOAD_TIERS.reduce(function (s, t) { return s + t.w; }, 0);
-    let r = Math.random() * total, tier = PAYLOAD_TIERS[0];
-    for (let i = 0; i < PAYLOAD_TIERS.length; i++) {
-      r -= PAYLOAD_TIERS[i].w;
-      if (r <= 0) { tier = PAYLOAD_TIERS[i]; break; }
-    }
+  function pick(tiers) {
+    const total = tiers.reduce(function (s, t) { return s + t.w; }, 0);
+    let r = Math.random() * total, tier = tiers[0];
+    for (let i = 0; i < tiers.length; i++) { r -= tiers[i].w; if (r <= 0) { tier = tiers[i]; break; } }
     const bytes = Math.floor(tier.min + Math.random() * (tier.max - tier.min));
     return { bytes: bytes, text: tier.make(bytes) };
   }
+  function newPayload() { return pick(PAYLOAD_TIERS); }
+
+  // Responses return data, so they skew larger than the request that asked for
+  // them — which makes the request/response purity contrast land on its own.
+  const RESP_TIERS = [
+    { w: 3, min: 120,  max: 560,  make: function (b) { return '{"id":12345,"name":"Ada Lovelace","role":"admin"}'; } },
+    { w: 2, min: 900,  max: 1400, make: function (b) { return '{"users":[ …' + b.toLocaleString() + ' B, full segment… ]}'; } }
+  ];
+  function newResponse() { return pick(RESP_TIERS); }
 
   window.OSI = {
     LAYERS: LAYERS, SIZES: SIZES, FIELDS: FIELDS, STEP: STEP,
     SCENARIOS: SCENARIOS,
     buildSteps: buildSteps, buildStepIds: buildStepIds,
-    shellsFor: shellsFor, newPayload: newPayload
+    shellsFor: shellsFor, newPayload: newPayload, newResponse: newResponse
   };
 })();

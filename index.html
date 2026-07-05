@@ -27,7 +27,7 @@
     <button id="help-btn" class="ghost-btn" aria-haspopup="dialog">? Guide</button>
   </header>
 
-  <main class="layout">
+  <main class="workspace">
     <!-- ============ STAGE ============ -->
     <section id="stage" class="stage" tabindex="0" aria-label="Packet journey stage. Use left and right arrow keys to step, space to play or pause, or scroll over this area to advance.">
       <!-- Endpoints -->
@@ -82,94 +82,107 @@
       <p class="scroll-hint" id="scroll-hint" aria-hidden="true">Scroll or swipe ↔ to advance</p>
     </section>
 
-    <!-- ============ SIDE PANEL ============ -->
-    <aside class="panel" aria-label="Details">
-      <!-- Step narrative -->
-      <div class="card step-card">
-        <div class="step-eyebrow"><span id="step-layer-chip" class="chip">Application</span><span id="step-counter" class="step-counter"></span></div>
-        <h2 id="step-title">—</h2>
-        <p id="step-why" class="why">—</p>
-      </div>
+    <!-- ===== BOTTOM SHEET (mobile) — dissolves into side panel + control bar on desktop ===== -->
+    <div class="sheet" id="sheet">
+      <button class="sheet-handle" id="sheet-handle" type="button" aria-expanded="false" aria-controls="sheet-inner" aria-label="Show controls and details">
+        <span class="grabber" aria-hidden="true"></span>
+        <span class="sheet-handle-row"><span class="chevron" aria-hidden="true">⌃</span><span class="sheet-handle-label">Controls &amp; details</span></span>
+      </button>
+      <div class="sheet-inner" id="sheet-inner">
 
-      <!-- Diagnose: scenario + verdict -->
-      <div class="card diagnose-card" id="diagnose-card" hidden>
-        <h3>Scenario</h3>
-        <select id="scenario-select" aria-label="Choose a failure scenario"></select>
-        <div id="quiz" class="quiz" hidden>
-          <p class="quiz-q">Where does this break? Take a guess before revealing:</p>
-          <div id="quiz-options" class="quiz-options"></div>
-          <button id="quiz-reveal" class="ghost-btn small">Skip &amp; reveal</button>
-        </div>
-        <div id="verdict" class="verdict" hidden></div>
-      </div>
-
-      <!-- Signal purity -->
-      <div class="card purity-card">
-        <h3>Signal purity <button class="info-dot" data-tip="Share of the packet that is actual application data vs. delivery metadata. Watch it swing with payload size.">i</button></h3>
-        <div class="purity-row">
-          <div class="meter" id="purity-meter" role="img" aria-label="Signal purity meter"><span id="purity-pct">100%</span></div>
-          <div class="purity-legend">
-            <div><b id="purity-signal">100%</b> signal</div>
-            <div><b id="purity-meta">0%</b> metadata</div>
-            <div class="muted"><span id="purity-bytes">— bytes total</span></div>
+        <!-- ============ CONTROL BAR ============ -->
+        <footer class="controls" aria-label="Playback controls">
+          <div class="ctl-group transport">
+            <button id="btn-first" class="ctl-btn" aria-label="First step" title="First (Home)">⏮</button>
+            <button id="btn-prev" class="ctl-btn" aria-label="Previous step" title="Previous (←)">◀</button>
+            <button id="btn-play" class="ctl-btn play" aria-label="Play" title="Play / pause (Space)">▶</button>
+            <button id="btn-next" class="ctl-btn" aria-label="Next step" title="Next (→)">▶▶</button>
+            <button id="btn-last" class="ctl-btn" aria-label="Last step" title="Last (End)">⏭</button>
           </div>
-        </div>
-        <div class="stack-bar" id="stack-bar" aria-hidden="true"></div>
-      </div>
 
-      <!-- Packet anatomy -->
-      <div class="card anatomy-card">
-        <h3>Packet anatomy <span class="muted small">(outer → inner)</span></h3>
-        <ul id="anatomy-list" class="anatomy-list"></ul>
-      </div>
+          <div class="ctl-group scrub">
+            <input id="scrubber" type="range" min="0" max="1000" value="0" step="1" aria-label="Scrub through the journey" />
+            <span id="scrub-label" class="scrub-label" aria-hidden="true">Step 1</span>
+          </div>
 
-      <!-- Real tool output -->
-      <div class="card tool-card" id="tool-card" hidden>
-        <h3>What you'd actually see</h3>
-        <div class="term">
-          <div class="term-cmd" id="tool-cmd">$</div>
-          <pre class="term-out" id="tool-out"></pre>
-        </div>
-      </div>
-    </aside>
+          <div class="ctl-group speed">
+            <label for="speed">Speed</label>
+            <select id="speed" aria-label="Playback speed">
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="2">2×</option>
+              <option value="4">4×</option>
+            </select>
+          </div>
+
+          <div class="ctl-group toggles">
+            <button id="tg-tls" class="toggle" aria-pressed="true">TLS</button>
+            <button id="tg-cross" class="toggle" aria-pressed="true">Cross-node</button>
+            <button id="tg-handshake" class="toggle" aria-pressed="false">Handshake</button>
+            <button id="tg-roundtrip" class="toggle" aria-pressed="false">Round trip</button>
+            <button id="tg-readers" class="toggle" aria-pressed="false">Highlight readers</button>
+            <button id="tg-tool" class="toggle" aria-pressed="false">Tool output</button>
+            <button id="tg-motion" class="toggle" aria-pressed="false" title="Reduce animation">Reduce motion</button>
+            <button id="btn-newpacket" class="ghost-btn" aria-label="Generate a new random payload">↻ New packet</button>
+          </div>
+        </footer>
+
+        <!-- ============ DETAIL PANEL ============ -->
+        <aside class="panel" aria-label="Details">
+          <!-- Step narrative -->
+          <div class="card step-card">
+            <div class="step-eyebrow"><span id="step-layer-chip" class="chip">Application</span><span id="step-counter" class="step-counter"></span></div>
+            <h2 id="step-title">—</h2>
+            <p id="step-why" class="why">—</p>
+          </div>
+
+          <!-- Diagnose: scenario + verdict -->
+          <div class="card diagnose-card" id="diagnose-card" hidden>
+            <h3>Scenario</h3>
+            <select id="scenario-select" aria-label="Choose a failure scenario"></select>
+            <div id="quiz" class="quiz" hidden>
+              <p class="quiz-q">Where does this break? Take a guess before revealing:</p>
+              <div id="quiz-options" class="quiz-options"></div>
+              <button id="quiz-reveal" class="ghost-btn small">Skip &amp; reveal</button>
+            </div>
+            <div id="verdict" class="verdict" hidden></div>
+          </div>
+
+          <!-- Signal purity -->
+          <div class="card purity-card">
+            <h3>Signal purity <button class="info-dot" data-tip="Share of the packet that is actual application data vs. delivery metadata. Watch it swing with payload size.">i</button></h3>
+            <div class="purity-row">
+              <div class="meter" id="purity-meter" role="img" aria-label="Signal purity meter"><span id="purity-pct">100%</span></div>
+              <div class="purity-legend">
+                <div><b id="purity-signal">100%</b> signal</div>
+                <div><b id="purity-meta">0%</b> metadata</div>
+                <div class="muted"><span id="purity-bytes">— bytes total</span></div>
+              </div>
+            </div>
+            <div class="stack-bar" id="stack-bar" aria-hidden="true"></div>
+          </div>
+
+          <!-- Packet anatomy -->
+          <div class="card anatomy-card">
+            <h3>Packet anatomy <span class="muted small">(outer → inner)</span></h3>
+            <ul id="anatomy-list" class="anatomy-list"></ul>
+          </div>
+
+          <!-- Real tool output -->
+          <div class="card tool-card" id="tool-card" hidden>
+            <h3>What you'd actually see</h3>
+            <div class="term">
+              <div class="term-cmd" id="tool-cmd">$</div>
+              <pre class="term-out" id="tool-out"></pre>
+            </div>
+          </div>
+        </aside>
+
+      </div><!-- .sheet-inner -->
+    </div><!-- .sheet -->
   </main>
 
-  <!-- ============ CONTROL BAR ============ -->
-  <footer class="controls" aria-label="Playback controls">
-    <div class="ctl-group transport">
-      <button id="btn-first" class="ctl-btn" aria-label="First step" title="First (Home)">⏮</button>
-      <button id="btn-prev" class="ctl-btn" aria-label="Previous step" title="Previous (←)">◀</button>
-      <button id="btn-play" class="ctl-btn play" aria-label="Play" title="Play / pause (Space)">▶</button>
-      <button id="btn-next" class="ctl-btn" aria-label="Next step" title="Next (→)">▶▶</button>
-      <button id="btn-last" class="ctl-btn" aria-label="Last step" title="Last (End)">⏭</button>
-    </div>
-
-    <div class="ctl-group scrub">
-      <input id="scrubber" type="range" min="0" max="1000" value="0" step="1" aria-label="Scrub through the journey" />
-      <span id="scrub-label" class="scrub-label" aria-hidden="true">Step 1</span>
-    </div>
-
-    <div class="ctl-group speed">
-      <label for="speed">Speed</label>
-      <select id="speed" aria-label="Playback speed">
-        <option value="0.5">0.5×</option>
-        <option value="1" selected>1×</option>
-        <option value="2">2×</option>
-        <option value="4">4×</option>
-      </select>
-    </div>
-
-    <div class="ctl-group toggles">
-      <button id="tg-tls" class="toggle" aria-pressed="true">TLS</button>
-      <button id="tg-cross" class="toggle" aria-pressed="true">Cross-node</button>
-      <button id="tg-handshake" class="toggle" aria-pressed="false">Handshake</button>
-      <button id="tg-roundtrip" class="toggle" aria-pressed="false">Round trip</button>
-      <button id="tg-readers" class="toggle" aria-pressed="false">Highlight readers</button>
-      <button id="tg-tool" class="toggle" aria-pressed="false">Tool output</button>
-      <button id="tg-motion" class="toggle" aria-pressed="false" title="Reduce animation">Reduce motion</button>
-      <button id="btn-newpacket" class="ghost-btn" aria-label="Generate a new random payload">↻ New packet</button>
-    </div>
-  </footer>
+  <div class="sheet-scrim" id="sheet-scrim"></div>
 
   <!-- Live region for screen readers -->
   <div class="sr-only" id="live" aria-live="polite"></div>
@@ -181,7 +194,7 @@
       <h2 id="help-title">How to read this</h2>
       <p>A single request travels a <b>U-shaped path</b>: it descends the client's stack getting <em>wrapped</em> (encapsulation), crosses the underlay network, then ascends the server's stack getting <em>unwrapped</em> (decapsulation).</p>
       <ul class="help-list">
-        <li><b>Advance it</b> by scrolling over the stage, dragging the scrubber, pressing <kbd>←</kbd>/<kbd>→</kbd>, or hitting <kbd>Space</kbd> to auto-play.</li>
+        <li><b>Advance it</b> <span class="hint-kbd">by scrolling over the stage, dragging the scrubber, pressing <kbd>←</kbd>/<kbd>→</kbd>, or hitting <kbd>Space</kbd> to auto-play.</span><span class="hint-touch">by swiping across the stage — or pull up the <b>Controls &amp; details</b> panel at the bottom to scrub, auto-play, and read each step.</span></li>
         <li><b>Signal purity</b> shows how little of the packet is real application data. Hit <b>↻ New packet</b> in Explore mode to see it swing with payload size.</li>
         <li><b>Highlight readers</b> dims everything a given component can't see — proof that each layer is a blind courier reading only its own envelope.</li>
         <li><b>Tool output</b> reveals the real <code>tcpdump</code> / <code>ss</code> / <code>ip</code> you'd run at each step.</li>

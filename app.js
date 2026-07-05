@@ -491,6 +491,55 @@
     $("#help-start").addEventListener("click", closeHelp);
     dlg.addEventListener("click", function (e) { if (e.target === dlg) closeHelp(); });
     document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !dlg.hidden) closeHelp(); });
+
+    // ---- bottom sheet (mobile): tap or drag the handle up to reveal controls + details ----
+    const sheet = $("#sheet"), sheetHandle = $("#sheet-handle"),
+          sheetScrim = $("#sheet-scrim"), sheetInner = $("#sheet-inner");
+    let dragStartY = 0, dragging = false, dragged = false, collapsedY = 0, suppressClick = false;
+
+    function sheetOpen() {
+      sheet.classList.add("open"); sheetScrim.classList.add("show");
+      sheetHandle.setAttribute("aria-expanded", "true"); sheetInner.scrollTop = 0;
+    }
+    function sheetClose() {
+      sheet.classList.remove("open"); sheetScrim.classList.remove("show");
+      sheetHandle.setAttribute("aria-expanded", "false");
+    }
+    function sheetToggle() { sheet.classList.contains("open") ? sheetClose() : sheetOpen(); }
+
+    sheetScrim.addEventListener("click", sheetClose);
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && sheet.classList.contains("open")) sheetClose();
+    });
+    sheetHandle.addEventListener("click", function () {
+      if (suppressClick) { suppressClick = false; return; } // the drag already decided
+      sheetToggle();
+    });
+    sheetHandle.addEventListener("pointerdown", function (e) {
+      if (getComputedStyle(sheetHandle).display === "none") return; // desktop: handle is gone
+      dragging = true; dragged = false; suppressClick = false; dragStartY = e.clientY;
+      collapsedY = sheet.offsetHeight - sheetHandle.offsetHeight;
+      sheet.style.transition = "none";
+      try { sheetHandle.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    sheetHandle.addEventListener("pointermove", function (e) {
+      if (!dragging) return;
+      const dy = e.clientY - dragStartY;
+      if (Math.abs(dy) > 5) dragged = true;
+      const base = sheet.classList.contains("open") ? 0 : collapsedY;
+      sheet.style.transform = "translateY(" + Math.min(collapsedY, Math.max(0, base + dy)) + "px)";
+    });
+    function endSheetDrag(e) {
+      if (!dragging) return;
+      dragging = false;
+      sheet.style.transition = ""; sheet.style.transform = "";
+      if (!dragged) return;             // a tap → let the click handler toggle
+      suppressClick = true;
+      const base = sheet.classList.contains("open") ? 0 : collapsedY;
+      (base + (e.clientY - dragStartY) < collapsedY / 2) ? sheetOpen() : sheetClose();
+    }
+    sheetHandle.addEventListener("pointerup", endSheetDrag);
+    sheetHandle.addEventListener("pointercancel", endSheetDrag);
   }
 
   // ---------- init ----------

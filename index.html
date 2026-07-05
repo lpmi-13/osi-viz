@@ -181,7 +181,7 @@
       <h2 id="help-title">How to read this</h2>
       <p>A single request travels a <b>U-shaped path</b>: it descends the client's stack getting <em>wrapped</em> (encapsulation), crosses the underlay network, then ascends the server's stack getting <em>unwrapped</em> (decapsulation).</p>
       <ul class="help-list">
-        <li><b>Advance it</b> by scrolling over the stage, dragging the scrubber, pressing <kbd>←</kbd>/<kbd>→</kbd>, or hitting <kbd>Space</kbd> to auto-play.</li>
+        <li><b>Advance it</b> <span class="hint-kbd">by scrolling over the stage, dragging the scrubber, pressing <kbd>←</kbd>/<kbd>→</kbd>, or hitting <kbd>Space</kbd> to auto-play.</span><span class="hint-touch">by swiping across the stage, dragging the scrubber, or tapping the arrows and the <b>▶</b> play button below.</span></li>
         <li><b>Signal purity</b> shows how little of the packet is real application data. Hit <b>↻ New packet</b> in Explore mode to see it swing with payload size.</li>
         <li><b>Highlight readers</b> dims everything a given component can't see — proof that each layer is a blind courier reading only its own envelope.</li>
         <li><b>Tool output</b> reveals the real <code>tcpdump</code> / <code>ss</code> / <code>ip</code> you'd run at each step.</li>

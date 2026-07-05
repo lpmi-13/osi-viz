@@ -161,6 +161,13 @@ h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
 .pod-role { font-size: 9.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted-2); }
 .pod-name { font-weight: 700; font-size: 14px; }
 .pod-meta { font-size: 10px; color: var(--muted); font-family: ui-monospace, monospace; }
+.pod-state {
+  margin-top: 5px; align-self: flex-start; font-size: 9.5px; font-weight: 800;
+  letter-spacing: .06em; padding: 2px 8px; border-radius: 5px;
+  background: rgba(110,168,255,.16); color: var(--accent); border: 1px solid rgba(110,168,255,.4);
+  font-family: ui-monospace, monospace;
+}
+.pod-recv .pod-state { align-self: flex-end; }
 .pod.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 8px 30px rgba(110,168,255,.25); }
 
 /* The data block + nested shells */
@@ -203,6 +210,13 @@ h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
   transition: filter var(--speed), letter-spacing var(--speed), color var(--speed);
 }
 .core-text { font-family: ui-monospace, monospace; font-weight: 700; font-size: 11.5px; word-break: break-word; }
+
+/* Handshake control token (SYN / SYN-ACK / ACK) — a flag, not application data */
+.block.control .core {
+  background: #2a2114; color: #ffcf7a; box-shadow: 0 0 18px rgba(224,138,52,.4);
+  border: 1px dashed #7a5a2a;
+}
+.block.control .core-text { letter-spacing: 1px; }
 
 /* Shell presence: collapse when not present */
 .shell:not(.present) {

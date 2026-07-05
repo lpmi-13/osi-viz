@@ -24,7 +24,11 @@
   const FIELDS = {
     http:  (s) => s.dir === "resp" ? "HTTP/2 200 OK · application/json" : "GET /api/users/12345 · application/json",
     tls:   (s) => "TLSv1.3 · AES-128-GCM · AppData(23)",
-    tcp:   (s) => s.dir === "resp" ? ":443 → :52134 · seq 5001 · [ACK,PSH]" : ":52134 → :443 · seq 1001 · [ACK,PSH]",
+    tcp:   (s) => {
+      const ports = s.dir === "resp" ? ":443 → :52134" : ":52134 → :443";
+      if (s.ctl) return "[" + s.ctl.replace("·", ",") + "] " + ports + " · seq 0";
+      return ports + (s.dir === "resp" ? " · seq 5001 · [ACK,PSH]" : " · seq 1001 · [ACK,PSH]");
+    },
     ip:    (s) => s.dir === "resp"
       ? "10.244.2.10 → 10.244.1.5 · TTL " + s.ttl + " · TCP"
       : "10.244.1.5 → 10.244.2.10 · TTL " + s.ttl + " · TCP",
@@ -204,6 +208,71 @@
       why: "The round trip is complete: the frontend has the data it asked for and can render it. Full circle — back where we started, top-left.",
       reader: { who: "Application code (client)", sees: "the response payload — delivered" },
       tool: { cmd: "# frontend", out: "200 OK — response rendered\n# full round trip complete" }
+    },
+
+    // ---- TCP three-way handshake (before any data) ----
+    "h-syn-send": {
+      chip: "Transport", title: "Client sends SYN",
+      why: "Before a single byte of data, TCP opens the connection. The client sends a segment with only the SYN flag set and no application payload — 0% signal, 100% control.",
+      reader: { who: "Kernel (TCP)", sees: "SYN flag, initial sequence number" },
+      tool: { cmd: "ss -tan state syn-sent", out:
+        "SYN-SENT 0 1 10.244.1.5:52134 10.244.2.10:443\ntcpdump: 10.244.1.5 > 10.244.2.10: Flags [S], seq 0" }
+    },
+    "h-syn-net": {
+      chip: "Overlay", title: "SYN crosses the network",
+      why: "The SYN is wrapped in IP (and VXLAN) and routed to the server just like a data packet — but it carries nothing to deliver.",
+      reader: { who: "Underlay router", sees: "an ordinary packet — 40 bytes, no data" },
+      tool: { cmd: "tcpdump -ni eth0 'tcp[tcpflags] & tcp-syn != 0'", out:
+        "IP 192.168.1.10 > 192.168.1.11: VXLAN vni 42\n  IP 10.244.1.5.52134 > 10.244.2.10.443: Flags [S]" }
+    },
+    "h-syn-recv": {
+      chip: "Transport", title: "Server receives SYN",
+      why: "The server's kernel sees a SYN arrive on a listening port (443) and records a half-open connection in the SYN backlog.",
+      reader: { who: "Kernel (socket)", sees: "SYN on a LISTEN socket → SYN-RCVD" },
+      tool: { cmd: "ss -tan state listening", out:
+        "LISTEN 0 4096 *:443\n# half-open connection queued (SYN-RECV)" }
+    },
+    "h-sa-send": {
+      chip: "Transport", title: "Server replies SYN-ACK",
+      why: "The server agrees to the connection: it sends back a segment with both SYN and ACK set, and its own initial sequence number.",
+      reader: { who: "Kernel (TCP)", sees: "SYN+ACK flags" },
+      tool: { cmd: "tcpdump -ni any 'port 443'", out:
+        "IP 10.244.2.10.443 > 10.244.1.5.52134: Flags [S.], seq 0, ack 1" }
+    },
+    "h-sa-net": {
+      chip: "Overlay", title: "SYN-ACK crosses back",
+      why: "The acknowledgement is tunnelled back toward the client, worker-2 → worker-1.",
+      reader: { who: "Underlay router", sees: "outer node-to-node header only" },
+      tool: { cmd: "tcpdump -ni eth0 'udp port 4789'", out:
+        "IP 192.168.1.11 > 192.168.1.10: VXLAN vni 42\n  IP 10.244.2.10.443 > 10.244.1.5.52134: Flags [S.]" }
+    },
+    "h-sa-recv": {
+      chip: "Transport", title: "Client receives SYN-ACK",
+      why: "The client now considers the connection ESTABLISHED — from its point of view it can start sending data immediately.",
+      reader: { who: "Kernel (TCP)", sees: "SYN-ACK → ESTABLISHED (client side)" },
+      tool: { cmd: "ss -tan state established dst 10.244.2.10", out:
+        "ESTAB 0 0 10.244.1.5:52134 10.244.2.10:443" }
+    },
+    "h-ack-send": {
+      chip: "Transport", title: "Client sends ACK",
+      why: "The client acknowledges the server's SYN. This third segment completes the three-way handshake.",
+      reader: { who: "Kernel (TCP)", sees: "ACK flag" },
+      tool: { cmd: "tcpdump -ni any 'port 443'", out:
+        "IP 10.244.1.5.52134 > 10.244.2.10.443: Flags [.], ack 1" }
+    },
+    "h-ack-net": {
+      chip: "Overlay", title: "ACK crosses to the server",
+      why: "The final ACK is tunnelled across to the server node.",
+      reader: { who: "Underlay router", sees: "an ordinary 40-byte packet" },
+      tool: { cmd: "tcpdump -ni eth0 'udp port 4789'", out:
+        "IP 192.168.1.10 > 192.168.1.11: VXLAN vni 42\n  IP 10.244.1.5.52134 > 10.244.2.10.443: Flags [.]" }
+    },
+    "h-ack-recv": {
+      chip: "Transport", title: "Handshake complete — ESTABLISHED",
+      why: "The server receives the final ACK. Both ends are now ESTABLISHED; only now can the request data actually flow.",
+      reader: { who: "Kernel (socket)", sees: "ACK → ESTABLISHED (server side)" },
+      tool: { cmd: "ss -tanp state established sport = :443", out:
+        "ESTAB 0 0 10.244.2.10:443 10.244.1.5:52134  users:((\"envoy\"))" }
     }
   };
 
@@ -266,16 +335,29 @@
     return send.concat(net, recv);
   }
 
-  // Build step objects for one direction (geometry + shell state).
+  const SEGLEG = { 1: "L", 2: "B", 3: "R", 4: "R", 5: "B", 6: "L" };
+
+  // Spread a phase's steps evenly along each of its segments (frac 0..1).
+  function assignFracs(steps) {
+    const bySeg = {};
+    steps.forEach(function (s) { (bySeg[s.seg] = bySeg[s.seg] || []).push(s); });
+    Object.keys(bySeg).forEach(function (seg) {
+      const g = bySeg[seg];
+      g.forEach(function (s, k) { s.frac = g.length > 1 ? k / (g.length - 1) : 0.5; });
+    });
+    return steps;
+  }
+
+  // Build data-carrying step objects for one direction (geometry + shell state).
   function legSteps(opts, dir) {
     const baseIds = buildStepIds(opts);
     let seenTransit = false;
-    return baseIds.map(function (base) {
+    const steps = baseIds.map(function (base) {
       if (base === "transit" || base === "local" || role(base) === "recv") seenTransit = true;
       const shells = shellsFor(base, opts.tls);
       return {
         id: dir === "resp" ? "r-" + base : base,
-        dir: dir,
+        dir: dir, phase: dir,
         leg: legFor(base, dir),
         seg: segFor(base, dir),
         shells: shells,
@@ -283,13 +365,38 @@
         ttl: seenTransit ? 61 : 64
       };
     });
+    return assignFracs(steps);
   }
 
-  // Full journey. With opts.roundTrip, the request is followed by the response
-  // travelling back (server → client), so the block retraces the U.
+  // The TCP three-way handshake: three tiny, payload-less segments. Compact
+  // (send → transit → receive per packet) so it doesn't dwarf the data journey.
+  function buildHandshake(opts) {
+    const wrapSend = ["body", "tcp", "ip"];
+    const wrapNet = opts.crossNode ? ["body", "tcp", "ip", "vxlan"] : ["body", "tcp", "ip"];
+    function S(id, dir, seg, frac, ctl, shells, c, s) {
+      return { id: id, dir: dir, phase: "hs", ctl: ctl, seg: seg, frac: frac,
+        leg: SEGLEG[seg], shells: shells, ciphered: false, ttl: 64, state: { c: c, s: s } };
+    }
+    return [
+      S("h-syn-send", "req", 1, 0.20, "SYN", wrapSend, "SYN-SENT", "LISTEN"),
+      S("h-syn-net",  "req", 2, 0.50, "SYN", wrapNet,  "SYN-SENT", "LISTEN"),
+      S("h-syn-recv", "req", 3, 0.85, "SYN", wrapSend, "SYN-SENT", "SYN-RCVD"),
+      S("h-sa-send",  "resp", 4, 0.20, "SYN·ACK", wrapSend, "SYN-SENT", "SYN-RCVD"),
+      S("h-sa-net",   "resp", 5, 0.50, "SYN·ACK", wrapNet,  "SYN-SENT", "SYN-RCVD"),
+      S("h-sa-recv",  "resp", 6, 0.85, "SYN·ACK", wrapSend, "ESTABLISHED", "SYN-RCVD"),
+      S("h-ack-send", "req", 1, 0.20, "ACK", wrapSend, "ESTABLISHED", "SYN-RCVD"),
+      S("h-ack-net",  "req", 2, 0.50, "ACK", wrapNet,  "ESTABLISHED", "SYN-RCVD"),
+      S("h-ack-recv", "req", 3, 0.85, "ACK", wrapSend, "ESTABLISHED", "ESTABLISHED")
+    ];
+  }
+
+  // Full journey: optional handshake, then the request, then the optional response.
   function buildSteps(opts) {
-    const steps = legSteps(opts, "req");
-    return opts.roundTrip ? steps.concat(legSteps(opts, "resp")) : steps;
+    let steps = [];
+    if (opts.handshake) steps = steps.concat(buildHandshake(opts));
+    steps = steps.concat(legSteps(opts, "req"));
+    if (opts.roundTrip) steps = steps.concat(legSteps(opts, "resp"));
+    return steps;
   }
 
   // ---- Failure scenarios (Diagnose mode) ----

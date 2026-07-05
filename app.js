@@ -20,23 +20,16 @@
     6: [[LX, BY], [LX, TY]]        // response: up the client (left) leg
   };
   function computeAnchors(steps) {
-    const groups = {};
-    steps.forEach(function (s, i) { (groups[s.seg] = groups[s.seg] || []).push(i); });
-    const A = new Array(steps.length);
-    Object.keys(groups).forEach(function (seg) {
-      const arr = groups[seg], m = arr.length, st = SEG[seg][0], en = SEG[seg][1];
-      arr.forEach(function (idx, k) {
-        const p = m > 1 ? k / (m - 1) : 0.5;
-        A[idx] = { x: st[0] + (en[0] - st[0]) * p, y: st[1] + (en[1] - st[1]) * p };
-      });
+    return steps.map(function (s) {
+      const st = SEG[s.seg][0], en = SEG[s.seg][1], f = s.frac;
+      return { x: st[0] + (en[0] - st[0]) * f, y: st[1] + (en[1] - st[1]) * f };
     });
-    return A;
   }
 
   // ---------- state ----------
   const state = {
     mode: "explore",
-    tls: true, crossNode: true, roundTrip: false,
+    tls: true, crossNode: true, roundTrip: false, handshake: false,
     highlightReaders: false, showTool: false, reduceMotion: false,
     playing: false, speed: 1, progress: 0, _last: 0,
     payload: D.newPayload(),
@@ -44,7 +37,10 @@
     steps: [], anchors: [],
     scenario: null, broken: false, revealed: false, lastIdx: -1
   };
-  function payloadFor(step) { return step.dir === "resp" ? state.responsePayload : state.payload; }
+  function payloadFor(step) {
+    if (step.ctl) return { bytes: 0, text: step.ctl, ctl: true };
+    return step.dir === "resp" ? state.responsePayload : state.payload;
+  }
 
   // ---------- element refs ----------
   const stage = $("#stage");
@@ -57,6 +53,7 @@
   const readerCallout = $("#reader-callout");
   const failBurst = $("#failure-burst");
   const podSend = $("#pod-send"), podRecv = $("#pod-recv");
+  const podSendState = $("#pod-send-state"), podRecvState = $("#pod-recv-state");
   const uProgress = $("#u-progress");
   const uLen = uProgress.getTotalLength();
   uProgress.style.strokeDasharray = uLen;
@@ -67,7 +64,7 @@
   function rebuildSteps(keepRatio) {
     const ratio = keepRatio ? state.progress : 0;
     if (state.mode === "explore") {
-      state.steps = D.buildSteps({ tls: state.tls, crossNode: state.crossNode, roundTrip: state.roundTrip });
+      state.steps = D.buildSteps({ tls: state.tls, crossNode: state.crossNode, roundTrip: state.roundTrip, handshake: state.handshake });
       state.broken = false;
     } else {
       const sc = state.scenario;
@@ -132,11 +129,21 @@
       }
     });
     coreText.textContent = pl.text;
-    block.classList.toggle("ciphered", shellStep.ciphered);
+    block.classList.toggle("ciphered", shellStep.ciphered && !pl.ctl);
+    block.classList.toggle("control", !!pl.ctl);
 
     // endpoints — the left leg is always the client, the right leg the server
     podSend.classList.toggle("active", step.leg === "L");
     podRecv.classList.toggle("active", step.leg === "R");
+
+    // TCP connection-state badges (only while the handshake is in play)
+    if (state.handshake) {
+      const st = step.state || { c: "ESTABLISHED", s: "ESTABLISHED" };
+      podSendState.hidden = false; podRecvState.hidden = false;
+      podSendState.textContent = st.c; podRecvState.textContent = st.s;
+    } else {
+      podSendState.hidden = true; podRecvState.hidden = true;
+    }
 
     // reader callout
     if (state.highlightReaders && !(state.broken && idx === n - 1)) {
@@ -186,8 +193,10 @@
 
   function renderPanel(step, meta, idx, n, atBreak, shellStep, pl) {
     $("#step-layer-chip").textContent = meta.chip;
-    $("#step-counter").textContent = "Step " + (idx + 1) + " / " + n +
-      (step.dir === "resp" ? " · response" : (state.roundTrip ? " · request" : ""));
+    const phaseLabel = step.phase === "hs" ? " · handshake"
+      : step.dir === "resp" ? " · response"
+      : ((state.roundTrip || state.handshake) ? " · request" : "");
+    $("#step-counter").textContent = "Step " + (idx + 1) + " / " + n + phaseLabel;
     $("#step-title").textContent = meta.title;
     $("#step-why").textContent = meta.why;
 
@@ -222,10 +231,13 @@
       const L = D.LAYERS[layer];
       const li = document.createElement("li");
       if (layer === "body") li.className = "is-body";
+      const isCtl = layer === "body" && pl.ctl;
+      const name = isCtl ? "Control" : L.name;
+      const desc = isCtl ? pl.text + " flag — no data" : L.desc;
       li.innerHTML =
         '<span class="swatch" style="background:var(' + L.varColor + ')"></span>' +
-        '<span><span class="aname">' + L.name + '</span> ' +
-        '<span class="adesc">— ' + L.desc + '</span></span>' +
+        '<span><span class="aname">' + name + '</span> ' +
+        '<span class="adesc">— ' + desc + '</span></span>' +
         '<span class="abytes">' + bytesFor(layer, pl.bytes).toLocaleString() + ' B</span>';
       list.appendChild(li);
     });
@@ -310,7 +322,7 @@
     $("#diagnose-card").hidden = mode !== "diagnose";
 
     const scenarioDriven = mode === "diagnose";
-    ["tg-tls", "tg-cross", "tg-roundtrip", "btn-newpacket"].forEach(function (id) {
+    ["tg-tls", "tg-cross", "tg-roundtrip", "tg-handshake", "btn-newpacket"].forEach(function (id) {
       $("#" + id).disabled = scenarioDriven;
     });
 
@@ -362,6 +374,7 @@
     $("#tg-tls").setAttribute("aria-pressed", state.tls);
     $("#tg-cross").setAttribute("aria-pressed", state.crossNode);
     $("#tg-roundtrip").setAttribute("aria-pressed", state.roundTrip);
+    $("#tg-handshake").setAttribute("aria-pressed", state.handshake);
     $("#tg-readers").setAttribute("aria-pressed", state.highlightReaders);
     $("#tg-tool").setAttribute("aria-pressed", state.showTool);
     $("#tg-motion").setAttribute("aria-pressed", state.reduceMotion);
@@ -389,6 +402,9 @@
     });
     $("#tg-roundtrip").addEventListener("click", function () {
       state.roundTrip = !state.roundTrip; syncToggles(); rebuildSteps(true); render();
+    });
+    $("#tg-handshake").addEventListener("click", function () {
+      state.handshake = !state.handshake; syncToggles(); rebuildSteps(true); render();
     });
     $("#tg-readers").addEventListener("click", function () {
       state.highlightReaders = !state.highlightReaders; syncToggles(); render();

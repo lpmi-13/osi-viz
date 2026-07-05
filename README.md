@@ -49,6 +49,9 @@ debug a TLS handshake, so the tool speaks that language.
   per-packet overhead is roughly fixed, so efficiency is all about payload size.
   Flip **Round trip** on to send the response back too — the block bounces at the
   server and returns, and the big response reads far purer than the tiny request.
+  Flip **Handshake** on to prepend the TCP three-way handshake: three payload-less
+  segments at **0 % signal**, with each end's connection state advancing to
+  ESTABLISHED before any data moves.
 - **Diagnose** — pick a real production failure (connection refused, mTLS expiry,
   MTU black hole, overlay black hole). Guess which layer breaks, then watch the
   packet fail at exactly that point, with the real `tcpdump` / `ss` / `openssl`
@@ -64,6 +67,7 @@ debug a TLS handshake, so the tool speaks that language.
 | **Highlight readers** | Dims everything a component can't see — every layer is a blind courier reading only its own envelope |
 | **Tool output** | Shows the real command output at each step |
 | **TLS / Cross-node** | Toggle encryption and the inter-node VXLAN overlay |
+| **Handshake** | Prepend the TCP three-way handshake (SYN/SYN-ACK/ACK) with live connection state |
 | **Round trip** | Follow the response back from server to client, not just the request |
 | **Reduce motion** | Honoured automatically from your OS setting; toggle to override |
 
@@ -77,9 +81,9 @@ debug a TLS handshake, so the tool speaks that language.
 
 ## Known simplifications / not yet built
 
-- The **TCP handshake** (`SYN`/`SYN-ACK`/`ACK`) isn't shown yet. The **Round trip**
-  toggle covers the request+response *data* flow, but not connection setup — which
-  is what would make Diagnose scenarios like "no SYN-ACK" fully literal.
+- The **Handshake** toggle shows the three-way handshake as a compact
+  send → transit → receive per segment; it isn't wired into the Diagnose
+  scenarios yet (e.g. making "connection refused" literally a SYN → RST exchange).
 - Diagnose scenarios are request-only: a failed request never produces a response,
   which is itself the point (no answer comes back).
 - Header byte sizes are representative, not exact per-packet (TLS/TCP options vary).

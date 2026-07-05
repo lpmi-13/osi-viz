@@ -27,6 +27,7 @@
 
   --shell-radius: 14px;
   --speed: 420ms;
+  --block-scale: 0.55; /* mobile-first: small block; desktop bumps to 1 */
 }
 
 * { box-sizing: border-box; }
@@ -91,35 +92,40 @@ h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
 }
 .mode-btn {
   border: 0; background: transparent; color: var(--muted);
-  padding: 7px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 13.5px;
+  padding: 9px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 13.5px;
+  min-height: 40px;
 }
 .mode-btn[aria-selected="true"] { background: var(--accent); color: #04122e; }
 
 .ghost-btn {
   border: 1px solid var(--line); background: var(--bg); color: var(--text);
-  padding: 8px 14px; border-radius: 9px; cursor: pointer; font-weight: 600; font-size: 13px;
+  padding: 9px 14px; border-radius: 9px; cursor: pointer; font-weight: 600; font-size: 13px;
+  min-height: 40px;
 }
 .ghost-btn:hover { border-color: var(--accent); }
 .ghost-btn.small { padding: 5px 10px; font-size: 12px; }
 
-/* ---------------- Layout ---------------- */
-.layout {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 1fr 380px;
-  gap: 0;
-  min-height: 0;
-}
+/* ---------------- Layout (mobile-first) ----------------
+   On phones the three regions stack: stage, then controls, then the
+   scrolling detail panel. `display: contents` hoists the stage/panel out of
+   .layout so their order can interleave with the controls (a body sibling).
+   The desktop two-column grid is layered on at min-width: 900px. */
+.layout { display: contents; }
+.stage    { order: 1; }
+.controls { order: 2; }
+.panel    { order: 3; }
 
 /* ---------------- Stage ---------------- */
 .stage {
   position: relative;
   overflow: hidden;
+  touch-action: pan-y;            /* vertical = page scroll; horizontal = swipe-to-advance */
+  border-bottom: 1px solid var(--line);
   background:
     radial-gradient(1200px 600px at 50% -10%, #16224a 0%, transparent 60%),
     radial-gradient(900px 500px at 50% 120%, #101a38 0%, transparent 55%),
     var(--bg);
-  min-height: 520px;
+  min-height: 56vh;
 }
 
 .u-path { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -146,21 +152,21 @@ h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
 
 /* Pods */
 .pod {
-  position: absolute; top: 3.5%; width: 180px; padding: 10px 14px;
+  position: absolute; top: 3%; width: min(43vw, 178px); padding: 8px 11px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
   display: flex; flex-direction: column; gap: 1px; transition: box-shadow 250ms, border-color 250ms;
 }
 .pod-send { left: 2.5%; }
 .pod-recv { right: 2.5%; text-align: right; }
-.pod-role { font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted-2); }
-.pod-name { font-weight: 700; font-size: 15px; }
-.pod-meta { font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace; }
+.pod-role { font-size: 9.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted-2); }
+.pod-name { font-weight: 700; font-size: 14px; }
+.pod-meta { font-size: 10px; color: var(--muted); font-family: ui-monospace, monospace; }
 .pod.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 8px 30px rgba(110,168,255,.25); }
 
 /* The data block + nested shells */
 .block {
-  position: absolute; left: 18%; top: 24%;
-  transform: translate(-50%, -50%);
+  position: absolute; left: 22%; top: 26%;
+  transform: translate(-50%, -50%) scale(var(--block-scale));
   transition: left var(--speed) cubic-bezier(.4,0,.2,1), top var(--speed) cubic-bezier(.4,0,.2,1);
   cursor: pointer;
   z-index: 5;
@@ -240,8 +246,8 @@ h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
 
 /* ---------------- Side panel ---------------- */
 .panel {
-  background: var(--panel); border-left: 1px solid var(--line);
-  padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
+  background: var(--panel); border-top: 1px solid var(--line);
+  padding: 14px; display: flex; flex-direction: column; gap: 12px;
 }
 .card {
   background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 13px 14px;
@@ -332,7 +338,7 @@ h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
 .ctl-group.scrub { flex: 1; min-width: 200px; }
 .ctl-btn {
   border: 1px solid var(--line); background: var(--panel); color: var(--text);
-  width: 38px; height: 34px; border-radius: 8px; cursor: pointer; font-size: 12px;
+  min-width: 44px; height: 42px; border-radius: 8px; cursor: pointer; font-size: 12px;
   display: grid; place-items: center;
 }
 .ctl-btn:hover { border-color: var(--accent); }
@@ -344,7 +350,8 @@ h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
 .toggles { flex-wrap: wrap; }
 .toggle {
   border: 1px solid var(--line); background: var(--panel); color: var(--muted);
-  padding: 7px 12px; border-radius: 20px; cursor: pointer; font-size: 12.5px; font-weight: 600;
+  padding: 10px 13px; border-radius: 20px; cursor: pointer; font-size: 12.5px; font-weight: 600;
+  min-height: 40px;
 }
 .toggle[aria-pressed="true"] { background: var(--accent); color: #04122e; border-color: var(--accent); }
 .toggle:hover { border-color: var(--accent); }
@@ -384,12 +391,23 @@ kbd {
   padding: 10px 20px; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 14px;
 }
 
-/* ---------------- Responsive ---------------- */
-@media (max-width: 900px) {
-  .layout { grid-template-columns: 1fr; }
-  .panel { border-left: 0; border-top: 1px solid var(--line); max-height: none; }
-  .stage { min-height: 440px; }
-  .tagline { display: none; }
+/* ---------------- Responsive (desktop enhancement) ---------------- */
+@media (max-width: 620px) { .tagline { display: none; } }
+
+@media (min-width: 900px) {
+  :root { --block-scale: 1; }
+  .layout {
+    display: grid; grid-template-columns: 1fr 380px;
+    flex: 1; min-height: 0;
+  }
+  .stage { order: 0; min-height: 520px; border-bottom: 0; }
+  .panel {
+    order: 0; overflow-y: auto;
+    border-top: 0; border-left: 1px solid var(--line);
+  }
+  .pod { top: 3.5%; padding: 10px 14px; }
+  .pod-name { font-size: 15px; }
+  .pod-meta { font-size: 11px; }
 }
 
 /* ---------------- Reduced motion ---------------- */

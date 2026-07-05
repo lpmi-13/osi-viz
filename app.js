@@ -411,6 +411,26 @@
       setProgress(state.progress + d * 0.0009);
     }, { passive: false });
 
+    // touch: horizontal swipe advances; vertical is left to the page (touch-action: pan-y)
+    let tx = null, ty = null, tp = 0, swiping = false;
+    stage.addEventListener("touchstart", function (e) {
+      if (e.touches.length !== 1) { tx = null; return; }
+      tx = e.touches[0].clientX; ty = e.touches[0].clientY; tp = state.progress; swiping = false;
+    }, { passive: true });
+    stage.addEventListener("touchmove", function (e) {
+      if (tx === null) return;
+      const dx = e.touches[0].clientX - tx;
+      const dy = e.touches[0].clientY - ty;
+      if (!swiping) {
+        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) { swiping = true; pause(); }
+        else if (Math.abs(dy) > 8) { tx = null; return; } // vertical → let the page scroll
+        else return;
+      }
+      e.preventDefault();
+      setProgress(tp + dx / (stage.clientWidth || 320));
+    }, { passive: false });
+    stage.addEventListener("touchend", function () { tx = null; swiping = false; }, { passive: true });
+
     // keyboard
     document.addEventListener("keydown", function (e) {
       const t = e.target;

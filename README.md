@@ -1,103 +1,66 @@
 # Packet Journey
 
-An interactive visualization that demystifies how a single request is **wrapped,
-shipped, and unwrapped** as it moves through a cloud network — encapsulation and
-decapsulation made concrete.
+An interactive visualization that makes **encapsulation** intuitive: follow one
+request as it travels left → right — down the client's stack getting wrapped layer
+by layer, across the underlay at the bottom, then back up the server's stack getting
+unwrapped, until the bare payload reaches the application.
 
-It follows one `GET /api/users/12345` down the client's stack, across the underlay
-network, and up the server's stack, along a **U-shaped path**. The packet grows a
-coloured shell at every layer on the way down and sheds them on the way up.
+The packet is a big blob of concentric **colour rings**. The bright core is the
+real application data; each stop it passes wraps it in one more header — a new
+ring whose **area is proportional to that header's bytes**. Watch the core shrink
+to a sliver as delivery metadata piles on. That ratio — tiny signal, huge
+envelope — is the whole point.
 
-> The long-form design rationale (and the more ambitious "someday" ideas) live in
-> [`CONCEPT.md`](./CONCEPT.md). This app is the buildable first cut of that vision.
+> The long-form design rationale lives in [`CONCEPT.md`](./CONCEPT.md).
 
 ## Run it
 
-No build step, no dependencies. Either:
+No build step, no dependencies:
 
 ```bash
-# option A: just open it
-open index.html            # macOS  (xdg-open on Linux)
-
-# option B: serve it (recommended)
-python3 -m http.server 8000
-# then visit http://localhost:8000
+python3 -m http.server 8000   # then open http://localhost:8000
+# or just open index.html
 ```
 
-## The layer model
+## How it works
 
-We deliberately use the **practical TCP/IP model**, not the OSI 7-layer chart:
+- **Scroll or swipe** to move the packet along its track (a camera follows it;
+  layer nodes slide in from the right and out to the left). Arrow keys step
+  between nodes; the dots at the bottom jump to any layer.
+- **Each node's colour is the ring it adds** — the node is the legend. No labels
+  on the blob itself; meaning is carried by colour and proportion.
+- **Tap the packet** to open the inspector: a Wireshark-style nested dissection
+  of every header currently on the wire, plus the real `tcpdump` / `ss` line you'd
+  run to see it. The indentation *is* the encapsulation.
 
-| Stop | Header | Cloud construct |
-|------|--------|-----------------|
-| **Application** | HTTP framing + payload — **TLS is an optional toggle** | gRPC/REST, TLS/mTLS |
-| **Transport** | ports, sequence, flags | TCP socket (kernel) |
-| **Network** | src/dst IP, TTL, protocol; kube-proxy DNAT | pod IP, VPC/CNI |
-| **Overlay** *(not a numbered layer)* | outer node IPs, VNI | VXLAN/Geneve tunnel |
+## Layers
 
-There is no OSI L5/L6. Session has no encapsulation artifact to draw, and "L6" in
-the cloud is really just TLS — which is modelled as an encryption **transformation
-inside Application** (flip the *TLS* toggle to seal the payload and watch every
-downstream layer go blind). In production nobody debugs "a Layer 6 problem"; they
-debug a TLS handshake, so the tool speaks that language.
+Practical TCP/IP cloud view — no OSI L5/L6:
 
-## Two modes
-
-- **Explore** — free-form. Hit **↻ New packet** to randomise the payload size and
-  watch **Signal purity** swing from ~5 % (a tiny JSON blob is almost all envelope)
-  to ~90 % (a full-MSS segment is almost all data). This is the honest lesson:
-  per-packet overhead is roughly fixed, so efficiency is all about payload size.
-  Flip **Round trip** on to send the response back too — the block bounces at the
-  server and returns, and the big response reads far purer than the tiny request.
-  Flip **Handshake** on to prepend the TCP three-way handshake: three payload-less
-  segments at **0 % signal**, with each end's connection state advancing to
-  ESTABLISHED before any data moves.
-- **Diagnose** — pick a real production failure (connection refused via SYN→RST,
-  a firewall silently dropping the SYN, mTLS expiry, MTU black hole, overlay black
-  hole). Guess which layer breaks, then watch the packet fail at exactly that
-  point — including mid-handshake, with the connection state shown on each pod —
-  using the real `tcpdump` / `ss` / `openssl` output you'd use to find it and the fix.
-
-## Controls
-
-| Action | How |
-|--------|-----|
-| Advance / rewind | **Scroll** ↕/↔ over the stage, drag the **scrubber**, or press <kbd>←</kbd>/<kbd>→</kbd> |
-| Auto-play | **▶** or <kbd>Space</kbd>; change **Speed** (0.5×–4×) |
-| Jump to ends | ⏮ / ⏭ or <kbd>Home</kbd> / <kbd>End</kbd> |
-| **Highlight readers** | Dims everything a component can't see — every layer is a blind courier reading only its own envelope |
-| **Tool output** | Shows the real command output at each step |
-| **TLS / Cross-node** | Toggle encryption and the inter-node VXLAN overlay |
-| **Handshake** | Prepend the TCP three-way handshake (SYN/SYN-ACK/ACK) with live connection state |
-| **Round trip** | Follow the response back from server to client, not just the request |
-| **Reduce motion** | Honoured automatically from your OS setting; toggle to override |
-
-## Mobile
-
-On phones the stage fills the screen and the controls + detail panel collapse into
-a **bottom sheet** — tap or drag the handle up to scrub, toggle, and read each step;
-tap the scrim or drag down to dismiss. Swiping across the stage advances the journey
-with the sheet closed. On desktop the sheet dissolves back into the classic
-stage / side-panel / control-bar layout.
+| Ring | Header | Bytes |
+|------|--------|-------|
+| core | application data | the payload |
+| HTTP | request framing | 80 |
+| TLS  | encryption | 29 |
+| TCP  | transport (ports, seq) | 20 |
+| IP   | network (addresses, TTL) | 20 |
+| VXLAN | overlay tunnel | 50 |
 
 ## Accessibility
 
-- Every layer is labelled with text, never colour alone.
-- Full keyboard control; a live region announces each step and its purity.
-- `prefers-reduced-motion` is respected (snaps instead of animating).
-- The scroll-to-advance interaction is an enhancement — buttons, the scrubber, and
-  the keyboard all do the same job for anyone who can't or doesn't want to scroll.
-
-## Known simplifications / not yet built
-
-- Diagnose scenarios stop at the first failure — a broken request never produces
-  a response, which is itself the point (no answer comes back).
-- Header byte sizes are representative, not exact per-packet (TLS/TCP options vary).
-- L4 is modelled as TCP; QUIC/HTTP-3 over UDP is left for a later pass.
+Colour-blind-safe palette (Okabe–Ito derived); meaning never rests on hue alone —
+nodes carry icons and labels, and the inspector spells out every field in text.
+Full keyboard control; `prefers-reduced-motion` is honoured.
 
 ## Files
 
 - `index.html` — structure
-- `styles.css` — theme, the nested-shell block, layout, reduced-motion
-- `data.js` — layer model, per-step narration, tool output, failure scenarios
-- `app.js` — state, rendering, and all controls
+- `styles.css` — theme, the blob, nodes, inspector
+- `data.js` — the ordered list of layer-nodes (colour, bytes, header fields, tool output)
+- `app.js` — the camera, the ring blob, input, and the inspector
+
+## Not yet built
+
+- The **response**: a second packet travelling back from the server to the client.
+  This build covers one full delivery — down the client stack, across the underlay,
+  and back up to the server application.

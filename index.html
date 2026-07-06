@@ -2,208 +2,52 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Packet Journey — how data moves through a cloud network</title>
-  <meta name="description" content="An interactive visualization of encapsulation and decapsulation across the Application, Transport, Network and Overlay layers of a cloud network." />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Packet Journey — how a request gets wrapped</title>
+  <meta name="description" content="Scroll a single request along its path and watch it get wrapped, layer by layer. The bright core is the real data; everything else is delivery metadata." />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <a class="skip-link" href="#stage">Skip to visualization controls</a>
-
-  <header class="appbar">
-    <div class="brand">
-      <span class="brand-mark" aria-hidden="true">⌘</span>
-      <div>
-        <h1>Packet Journey</h1>
-        <p class="tagline">Watch one request get wrapped, shipped, and unwrapped across a cloud network.</p>
-      </div>
-    </div>
-
-    <div class="mode-switch" role="tablist" aria-label="Mode">
-      <button id="mode-explore" class="mode-btn" role="tab" aria-selected="true">Explore</button>
-      <button id="mode-diagnose" class="mode-btn" role="tab" aria-selected="false">Diagnose</button>
-    </div>
-
-    <button id="help-btn" class="ghost-btn" aria-haspopup="dialog">? Guide</button>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">⌘</span> Packet Journey</div>
+    <button id="help-btn" class="ghost" aria-haspopup="dialog" aria-label="About">?</button>
   </header>
 
-  <main class="workspace">
-    <!-- ============ STAGE ============ -->
-    <section id="stage" class="stage" tabindex="0" aria-label="Packet journey stage. Use left and right arrow keys to step, space to play or pause, or scroll over this area to advance.">
-      <!-- Endpoints -->
-      <div class="pod pod-send" id="pod-send">
-        <span class="pod-role">Client pod</span>
-        <span class="pod-name">frontend</span>
-        <span class="pod-meta">10.244.1.5 · node worker-1</span>
-        <span class="pod-state" id="pod-send-state" hidden></span>
-      </div>
-      <div class="pod pod-recv" id="pod-recv">
-        <span class="pod-role">Server pod</span>
-        <span class="pod-name">api-service</span>
-        <span class="pod-meta">10.244.2.10 · node worker-2</span>
-        <span class="pod-state" id="pod-recv-state" hidden></span>
-      </div>
+  <main id="stage" tabindex="0" aria-label="Packet journey. Scroll or swipe to move the packet along its path; press the arrow keys to step; tap the packet to inspect its headers.">
+    <!-- track curve + the ring blob live in one full-bleed SVG -->
+    <svg id="scene" aria-hidden="true"><path id="track-path" /><g id="blob"></g></svg>
 
-      <!-- U-path backdrop -->
-      <svg class="u-path" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        <path id="u-line" d="M 22 24 L 22 80 L 78 80 L 78 24" fill="none" />
-        <path id="u-progress" d="M 22 24 L 22 80 L 78 80 L 78 24" fill="none" />
-      </svg>
+    <!-- layer nodes (icons) float above the track -->
+    <div id="nodes"></div>
 
-      <!-- Layer lane labels -->
-      <div class="lanes" aria-hidden="true">
-        <div class="lane" data-y="30"><span>Application</span></div>
-        <div class="lane" data-y="46"><span>Transport</span></div>
-        <div class="lane" data-y="62"><span>Network</span></div>
-        <div class="lane underlay" data-y="80"><span>Underlay network (VXLAN tunnel)</span></div>
-      </div>
+    <!-- transparent tap target over the blob -->
+    <div id="blob-hit" role="button" tabindex="0" aria-label="Inspect the packet's headers"></div>
 
-      <!-- The data block: persistent nested shells -->
-      <div class="block" id="block" role="img" aria-label="Data packet">
-        <div class="shell s-vxlan" data-layer="vxlan"><span class="tag">VXLAN</span><span class="fields"></span>
-          <div class="shell s-ip" data-layer="ip"><span class="tag">IP</span><span class="fields"></span>
-            <div class="shell s-tcp" data-layer="tcp"><span class="tag">TCP</span><span class="fields"></span>
-              <div class="shell s-tls" data-layer="tls"><span class="tag">TLS</span><span class="fields"></span>
-                <div class="shell s-http" data-layer="http"><span class="tag">HTTP</span><span class="fields"></span>
-                  <div class="core s-body" data-layer="body"><span class="core-text"></span></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+    <p id="hint" aria-hidden="true">scroll or swipe&nbsp;→&nbsp;to move · tap the packet to inspect</p>
 
-      <!-- Active-reader callout -->
-      <div class="reader-callout" id="reader-callout" hidden></div>
-
-      <!-- Failure marker -->
-      <div class="failure-burst" id="failure-burst" hidden aria-hidden="true"></div>
-
-      <p class="scroll-hint" id="scroll-hint" aria-hidden="true">Scroll or swipe ↔ to advance</p>
-    </section>
-
-    <!-- ===== BOTTOM SHEET (mobile) — dissolves into side panel + control bar on desktop ===== -->
-    <div class="sheet" id="sheet">
-      <button class="sheet-handle" id="sheet-handle" type="button" aria-expanded="false" aria-controls="sheet-inner" aria-label="Show controls and details">
-        <span class="grabber" aria-hidden="true"></span>
-        <span class="sheet-handle-row"><span class="chevron" aria-hidden="true">⌃</span><span class="sheet-handle-label">Controls &amp; details</span></span>
-      </button>
-      <div class="sheet-inner" id="sheet-inner">
-
-        <!-- ============ CONTROL BAR ============ -->
-        <footer class="controls" aria-label="Playback controls">
-          <div class="ctl-group transport">
-            <button id="btn-first" class="ctl-btn" aria-label="First step" title="First (Home)">⏮</button>
-            <button id="btn-prev" class="ctl-btn" aria-label="Previous step" title="Previous (←)">◀</button>
-            <button id="btn-play" class="ctl-btn play" aria-label="Play" title="Play / pause (Space)">▶</button>
-            <button id="btn-next" class="ctl-btn" aria-label="Next step" title="Next (→)">▶▶</button>
-            <button id="btn-last" class="ctl-btn" aria-label="Last step" title="Last (End)">⏭</button>
-          </div>
-
-          <div class="ctl-group scrub">
-            <input id="scrubber" type="range" min="0" max="1000" value="0" step="1" aria-label="Scrub through the journey" />
-            <span id="scrub-label" class="scrub-label" aria-hidden="true">Step 1</span>
-          </div>
-
-          <div class="ctl-group speed">
-            <label for="speed">Speed</label>
-            <select id="speed" aria-label="Playback speed">
-              <option value="0.5">0.5×</option>
-              <option value="1" selected>1×</option>
-              <option value="2">2×</option>
-              <option value="4">4×</option>
-            </select>
-          </div>
-
-          <div class="ctl-group toggles">
-            <button id="tg-tls" class="toggle" aria-pressed="true">TLS</button>
-            <button id="tg-cross" class="toggle" aria-pressed="true">Cross-node</button>
-            <button id="tg-handshake" class="toggle" aria-pressed="false">Handshake</button>
-            <button id="tg-roundtrip" class="toggle" aria-pressed="false">Round trip</button>
-            <button id="tg-readers" class="toggle" aria-pressed="false">Highlight readers</button>
-            <button id="tg-tool" class="toggle" aria-pressed="false">Tool output</button>
-            <button id="tg-motion" class="toggle" aria-pressed="false" title="Reduce animation">Reduce motion</button>
-            <button id="btn-newpacket" class="ghost-btn" aria-label="Generate a new random payload">↻ New packet</button>
-          </div>
-        </footer>
-
-        <!-- ============ DETAIL PANEL ============ -->
-        <aside class="panel" aria-label="Details">
-          <!-- Step narrative -->
-          <div class="card step-card">
-            <div class="step-eyebrow"><span id="step-layer-chip" class="chip">Application</span><span id="step-counter" class="step-counter"></span></div>
-            <h2 id="step-title">—</h2>
-            <p id="step-why" class="why">—</p>
-          </div>
-
-          <!-- Diagnose: scenario + verdict -->
-          <div class="card diagnose-card" id="diagnose-card" hidden>
-            <h3>Scenario</h3>
-            <select id="scenario-select" aria-label="Choose a failure scenario"></select>
-            <div id="quiz" class="quiz" hidden>
-              <p class="quiz-q">Where does this break? Take a guess before revealing:</p>
-              <div id="quiz-options" class="quiz-options"></div>
-              <button id="quiz-reveal" class="ghost-btn small">Skip &amp; reveal</button>
-            </div>
-            <div id="verdict" class="verdict" hidden></div>
-          </div>
-
-          <!-- Signal purity -->
-          <div class="card purity-card">
-            <h3>Signal purity <button class="info-dot" data-tip="Share of the packet that is actual application data vs. delivery metadata. Watch it swing with payload size.">i</button></h3>
-            <div class="purity-row">
-              <div class="meter" id="purity-meter" role="img" aria-label="Signal purity meter"><span id="purity-pct">100%</span></div>
-              <div class="purity-legend">
-                <div><b id="purity-signal">100%</b> signal</div>
-                <div><b id="purity-meta">0%</b> metadata</div>
-                <div class="muted"><span id="purity-bytes">— bytes total</span></div>
-              </div>
-            </div>
-            <div class="stack-bar" id="stack-bar" aria-hidden="true"></div>
-          </div>
-
-          <!-- Packet anatomy -->
-          <div class="card anatomy-card">
-            <h3>Packet anatomy <span class="muted small">(outer → inner)</span></h3>
-            <ul id="anatomy-list" class="anatomy-list"></ul>
-          </div>
-
-          <!-- Real tool output -->
-          <div class="card tool-card" id="tool-card" hidden>
-            <h3>What you'd actually see</h3>
-            <div class="term">
-              <div class="term-cmd" id="tool-cmd">$</div>
-              <pre class="term-out" id="tool-out"></pre>
-            </div>
-          </div>
-        </aside>
-
-      </div><!-- .sheet-inner -->
-    </div><!-- .sheet -->
+    <div id="progress" aria-hidden="true"><div id="progress-dots"></div></div>
   </main>
 
-  <div class="sheet-scrim" id="sheet-scrim"></div>
+  <!-- packet inspector (tap the blob) -->
+  <div id="detail" class="overlay" hidden>
+    <div class="sheet-card" role="dialog" aria-modal="true" aria-label="Packet inspector">
+      <button class="close" id="detail-close" aria-label="Close">✕</button>
+      <h2>Packet inspector</h2>
+      <p class="detail-sub" id="detail-sub"></p>
+      <pre class="decode" id="detail-decode"></pre>
+      <div class="term"><div class="term-cmd" id="detail-cmd"></div><pre class="term-out" id="detail-out"></pre></div>
+    </div>
+  </div>
 
-  <!-- Live region for screen readers -->
-  <div class="sr-only" id="live" aria-live="polite"></div>
-
-  <!-- Help dialog -->
-  <div class="dialog-backdrop" id="help-dialog" hidden>
-    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
-      <button class="dialog-close" id="help-close" aria-label="Close">✕</button>
-      <h2 id="help-title">How to read this</h2>
-      <p>A single request travels a <b>U-shaped path</b>: it descends the client's stack getting <em>wrapped</em> (encapsulation), crosses the underlay network, then ascends the server's stack getting <em>unwrapped</em> (decapsulation).</p>
-      <ul class="help-list">
-        <li><b>Advance it</b> <span class="hint-kbd">by scrolling over the stage, dragging the scrubber, pressing <kbd>←</kbd>/<kbd>→</kbd>, or hitting <kbd>Space</kbd> to auto-play.</span><span class="hint-touch">by swiping across the stage — or pull up the <b>Controls &amp; details</b> panel at the bottom to scrub, auto-play, and read each step.</span></li>
-        <li><b>Signal purity</b> shows how little of the packet is real application data. Hit <b>↻ New packet</b> in Explore mode to see it swing with payload size.</li>
-        <li><b>Highlight readers</b> dims everything a given component can't see — proof that each layer is a blind courier reading only its own envelope.</li>
-        <li><b>Tool output</b> reveals the real <code>tcpdump</code> / <code>ss</code> / <code>ip</code> you'd run at each step.</li>
-        <li><b>Handshake</b> prepends the TCP three-way handshake (SYN → SYN-ACK → ACK). These segments carry no data at all — 0% signal — and you can watch each end's connection state advance to ESTABLISHED.</li>
-        <li><b>Round trip</b> adds the response coming back — the block bounces at the server and returns to the client. A big response is far purer than the tiny request that asked for it.</li>
-        <li><b>Diagnose mode</b> plays a real production failure and asks you to spot the breaking layer.</li>
-      </ul>
-      <p class="muted small">Layer model: we use the practical TCP/IP view — <b>Application</b> (HTTP, with TLS as an optional wrapper) over <b>Transport</b> (TCP) over <b>Network</b> (IP), plus the <b>Overlay</b> (VXLAN) tunnel. No OSI L5/L6 numbering, because in the cloud nobody debugs "a Layer 6 problem" — they debug a TLS handshake.</p>
-      <button class="primary-btn" id="help-start">Got it</button>
+  <!-- one-time guide -->
+  <div id="help" class="overlay" hidden>
+    <div class="sheet-card" role="dialog" aria-modal="true" aria-label="How to read this">
+      <button class="close" id="help-close" aria-label="Close">✕</button>
+      <h2>One request, wrapped for delivery</h2>
+      <p>Follow a single request as it travels left&nbsp;→&nbsp;right. Each stop wraps it in one more header, so the packet grows a new coloured ring.</p>
+      <p>The <b>bright core is the real data</b> the app cares about. Watch it shrink to a sliver as delivery metadata piles on — that ratio is the whole idea.</p>
+      <p class="muted">Scroll or swipe to move the packet. Each node's colour is the ring it adds. Tap the packet to see its real headers, as a tool like <code>tcpdump</code> would show them.</p>
+      <button class="primary" id="help-start">Start</button>
     </div>
   </div>
 

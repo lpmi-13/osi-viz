@@ -8,8 +8,14 @@
   "use strict";
   const D = window.OSI;
   const NODES = D.nodes;
+  const ORDER = D.ORDER;                 // canonical layer stack, inner → outer
   const MAXP = NODES.length - 1;
   const SVGNS = "http://www.w3.org/2000/svg";
+  const depth = function (i) { return NODES[i].n - 1; };   // 0 = L7, 5 = overlay
+  function depthAt(p) {
+    const i0 = Math.floor(p), i1 = Math.min(MAXP, i0 + 1);
+    return depth(i0) + (depth(i1) - depth(i0)) * (p - i0);
+  }
 
   const stage = document.getElementById("stage");
   const scene = document.getElementById("scene");
@@ -27,7 +33,7 @@
   const nodeEls = NODES.map(function (n) {
     const el = document.createElement("div");
     el.className = "node";
-    el.style.color = "var(" + n.color + ")";
+    el.style.color = "var(" + ORDER[n.n - 1].color + ")";   // node colour = its outermost layer
     el.innerHTML =
       '<div class="node-icon">' + n.icon + "</div>" +
       '<div class="node-name">' + n.name + "</div>" +
@@ -51,27 +57,25 @@
     return {
       w: w, h: h,
       ax: w * 0.44,                       // shared x anchor (stations pass over the blob)
-      stationY: h * 0.16,                 // stations ride an upper, gently sloping track
-      blobY: h * 0.64,                    // the big ring blob sits fixed, lower-centre
+      stationY: h * 0.20,                 // the current station rides here, above the blob
+      blobY: h * 0.66,                    // the big ring blob sits fixed, lower-centre
       spx: Math.max(w * 0.84, 340),       // horizontal spacing between stations
-      spy: Math.min(h * 0.08, 56),        // gentle downward slope, left→right
-      R: Math.max(82, 0.26 * Math.min(w, h))
+      trackGap: Math.min(h * 0.11, 80),   // vertical drop per layer of depth (the valley)
+      R: Math.max(80, 0.25 * Math.min(w, h))
     };
   }
 
-  // Which layers are on the packet at position p, inner→outer. The node just
-  // ahead contributes a fractional ring so the wrap grows smoothly with scroll.
+  // Which rings are on the packet at position p, inner→outer. Because the layer
+  // stacks are nested prefixes, this handles both directions: descending, the
+  // next layer grows in (weight = frac); ascending, the outermost shrinks out
+  // (weight = 1 − frac); across the flat bottom, nothing changes.
   function layersAt(p) {
-    const out = [{ color: NODES[0].color, bytes: NODES[0].bytes }]; // the app-data core
-    const full = Math.floor(p);
-    for (let i = 1; i <= full && i < NODES.length; i++) {
-      out.push({ color: NODES[i].color, bytes: NODES[i].bytes });
-    }
-    const next = full + 1;
-    if (next <= MAXP) {
-      const frac = p - full;
-      if (frac > 0.002) out.push({ color: NODES[next].color, bytes: NODES[next].bytes * frac, partial: true });
-    }
+    const iA = Math.floor(p), iB = Math.min(MAXP, iA + 1), frac = p - iA;
+    const nA = NODES[iA].n, nB = NODES[iB].n, base = Math.min(nA, nB);
+    const out = [];
+    for (let k = 0; k < base; k++) out.push({ color: ORDER[k].color, bytes: ORDER[k].bytes });
+    if (nB > nA && frac > 0.002) out.push({ color: ORDER[base].color, bytes: ORDER[base].bytes * frac, partial: true });
+    else if (nA > nB && (1 - frac) > 0.002) out.push({ color: ORDER[base].color, bytes: ORDER[base].bytes * (1 - frac), partial: true });
     return out;
   }
 
@@ -87,11 +91,14 @@
   function render() {
     const g = geom();
 
-    // stations ride the upper sloping track; the track line runs through them
+    // stations ride the valley: deeper layers sit lower. We keep the *current*
+    // station at g.stationY, so the track tilts down on the way in and up on the
+    // way out around the fixed packet.
+    const dNow = depthAt(progress);
     let d = "";
     NODES.forEach(function (n, i) {
       const x = g.ax + (i - progress) * g.spx;
-      const y = g.stationY + (i - progress) * g.spy;
+      const y = g.stationY + (depth(i) - dNow) * g.trackGap;
       d += (i === 0 ? "M" : "L") + x.toFixed(1) + " " + y.toFixed(1) + " ";
       const el = nodeEls[i];
       el.style.transform = "translate(" + x + "px," + y + "px)";
@@ -196,18 +203,18 @@
   // ---------- inspector (tap the blob) ----------
   const detail = document.getElementById("detail");
   function openDetail() {
-    const full = Math.floor(progress + 0.001);          // layers fully on the packet
-    const present = NODES.slice(0, full + 1);           // inner → outer
-    let bytes = 0; present.forEach(function (n) { bytes += n.bytes; });
+    const nAt = NODES[Math.round(progress)].n;          // layers on the packet here
+    const present = ORDER.slice(0, nAt);                // inner → outer
+    let bytes = 0; present.forEach(function (l) { bytes += l.bytes; });
 
     document.getElementById("detail-sub").textContent =
       "frame · " + bytes + " bytes on the wire · " + present.length + " layer" + (present.length > 1 ? "s" : "");
 
     // Wireshark-style nested dissection, outermost header first.
     let tree = "", indent = "";
-    present.slice().reverse().forEach(function (n) {
-      tree += indent + "▸ " + n.decode + "\n";
-      n.fields.forEach(function (f) { tree += indent + "    " + f + "\n"; });
+    present.slice().reverse().forEach(function (l) {
+      tree += indent + "▸ " + l.decode + "\n";
+      l.fields.forEach(function (f) { tree += indent + "    " + f + "\n"; });
       indent += "  ";
     });
     document.getElementById("detail-decode").textContent = tree.replace(/\n$/, "");

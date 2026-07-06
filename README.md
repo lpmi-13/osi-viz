@@ -1,7 +1,9 @@
 # Packet Journey
 
 An interactive visualization that makes **encapsulation** intuitive: follow one
-request as it travels left → right and gets wrapped, layer by layer, for delivery.
+request as it travels left → right — down the client's stack getting wrapped layer
+by layer, across the underlay at the bottom, then back up the server's stack getting
+unwrapped, until the bare payload reaches the application.
 
 The packet is a big blob of concentric **colour rings**. The bright core is the
 real application data; each stop it passes wraps it in one more header — a new
@@ -59,5 +61,6 @@ Full keyboard control; `prefers-reduced-motion` is honoured.
 
 ## Not yet built
 
-- The **return leg**: the packet decapsulating up the server's stack and the
-  response travelling back. This prototype covers the encapsulation descent.
+- The **response**: a second packet travelling back from the server to the client.
+  This build covers one full delivery — down the client stack, across the underlay,
+  and back up to the server application.

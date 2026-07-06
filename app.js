@@ -1,8 +1,9 @@
 /* ============================================================
-   app.js — a camera that follows one packet left→right along a
-   gently sloping track. The packet is a big blob of concentric
-   colour rings (area ∝ bytes); a new ring grows in as it passes
-   each layer node. Tap the blob to inspect the real headers.
+   app.js — a camera that follows one packet along a U-shaped path:
+   down the client's stack, across the underlay, up the server's.
+   The packet is a big box of nested colour squares (area ∝ bytes);
+   each layer's square SNAPS in/out as the packet reaches its node.
+   Tap the box to inspect the real headers.
    ============================================================ */
 (function () {
   "use strict";
@@ -11,11 +12,7 @@
   const ORDER = D.ORDER;                 // canonical layer stack, inner → outer
   const MAXP = NODES.length - 1;
   const SVGNS = "http://www.w3.org/2000/svg";
-  const depth = function (i) { return NODES[i].n - 1; };   // 0 = L7, 5 = overlay
-  function depthAt(p) {
-    const i0 = Math.floor(p), i1 = Math.min(MAXP, i0 + 1);
-    return depth(i0) + (depth(i1) - depth(i0)) * (p - i0);
-  }
+  const uShape = function (s) { return 4 * s * (1 - s); };  // 0 at ends, 1 at the bottom of the U
 
   const stage = document.getElementById("stage");
   const scene = document.getElementById("scene");
@@ -24,10 +21,9 @@
   const nodesWrap = document.getElementById("nodes");
   const hit = document.getElementById("blob-hit");
 
-  // progress runs 0 .. MAXP (continuous). 0 = at the client, MAXP = fully wrapped.
+  // progress runs 0 .. MAXP (continuous). 0 = client L7, MAXP = server L7.
   let progress = 0;
-  const circles = [];        // pooled SVG circles for the blob rings
-  let cssColor = {};         // resolved layer colours
+  const rects = [];          // pooled SVG rects for the nested-square box
 
   // ---------- build nodes + progress dots ----------
   const nodeEls = NODES.map(function (n) {
@@ -54,36 +50,29 @@
   // ---------- geometry ----------
   function geom() {
     const w = stage.clientWidth, h = stage.clientHeight;
-    return {
-      w: w, h: h,
-      ax: w * 0.44,                       // shared x anchor (stations pass over the blob)
-      stationY: h * 0.20,                 // the current station rides here, above the blob
-      blobY: h * 0.66,                    // the big ring blob sits fixed, lower-centre
-      spx: Math.max(w * 0.84, 340),       // horizontal spacing between stations
-      trackGap: Math.min(h * 0.11, 80),   // vertical drop per layer of depth (the valley)
-      R: Math.max(80, 0.25 * Math.min(w, h))
-    };
+    const R = Math.max(74, 0.2 * Math.min(w, h));       // half the max square's side
+    const gap = R + 96;                                 // the box hangs this far below its station
+    const uTop = 14;                                    // station Y at the U's rim (the L7 ends)
+    const uDip = Math.max(90, Math.min(h * 0.30, h - 84 - uTop - gap - R));  // depth of the U (clamped to fit)
+    return { w: w, h: h, ax: w * 0.46, spx: Math.max(w * 0.9, 340), R: R, gap: gap, uTop: uTop, uDip: uDip };
   }
 
-  // Which rings are on the packet at position p, inner→outer. Because the layer
-  // stacks are nested prefixes, this handles both directions: descending, the
-  // next layer grows in (weight = frac); ascending, the outermost shrinks out
-  // (weight = 1 − frac); across the flat bottom, nothing changes.
+  // Which squares are on the packet at position p, inner→outer. Discrete: the
+  // layer count is whatever node the packet has reached (floor), so a square
+  // snaps in (descending) or out (ascending) exactly at each node — it does not
+  // grow gradually along the wire.
   function layersAt(p) {
-    const iA = Math.floor(p), iB = Math.min(MAXP, iA + 1), frac = p - iA;
-    const nA = NODES[iA].n, nB = NODES[iB].n, base = Math.min(nA, nB);
+    const n = NODES[Math.min(MAXP, Math.max(0, Math.floor(p)))].n;
     const out = [];
-    for (let k = 0; k < base; k++) out.push({ color: ORDER[k].color, bytes: ORDER[k].bytes });
-    if (nB > nA && frac > 0.002) out.push({ color: ORDER[base].color, bytes: ORDER[base].bytes * frac, partial: true });
-    else if (nA > nB && (1 - frac) > 0.002) out.push({ color: ORDER[base].color, bytes: ORDER[base].bytes * (1 - frac), partial: true });
+    for (let k = 0; k < n; k++) out.push({ color: ORDER[k].color, bytes: ORDER[k].bytes });
     return out;
   }
 
-  function ensureCircles(n) {
-    while (circles.length < n) {
-      const c = document.createElementNS(SVGNS, "circle");
-      blobG.appendChild(c);
-      circles.push(c);
+  function ensureRects(n) {
+    while (rects.length < n) {
+      const r = document.createElementNS(SVGNS, "rect");
+      blobG.appendChild(r);
+      rects.push(r);
     }
   }
 
@@ -91,55 +80,57 @@
   function render() {
     const g = geom();
 
-    // stations ride the valley: deeper layers sit lower. We keep the *current*
-    // station at g.stationY, so the track tilts down on the way in and up on the
-    // way out around the fixed packet.
-    const dNow = depthAt(progress);
-    let d = "";
+    // stations sit on the U (absolute Y). The camera follows X only, so the
+    // packet visibly dips to the bottom of the U and climbs back up.
     NODES.forEach(function (n, i) {
       const x = g.ax + (i - progress) * g.spx;
-      const y = g.stationY + (depth(i) - dNow) * g.trackGap;
-      d += (i === 0 ? "M" : "L") + x.toFixed(1) + " " + y.toFixed(1) + " ";
+      const y = g.uTop + uShape(i / MAXP) * g.uDip;
       const el = nodeEls[i];
       el.style.transform = "translate(" + x + "px," + y + "px)";
-      const onScreen = x > -160 && x < g.w + 160;
-      el.style.opacity = onScreen ? "1" : "0";
+      el.style.opacity = (x > -180 && x < g.w + 180) ? "1" : "0";
       el.classList.toggle("active", Math.abs(i - progress) < 0.5);
     });
+
+    // the U track: sample the curve densely across the visible window
+    let d = "", first = true;
+    const t0 = Math.max(0, progress - 2.6), t1 = Math.min(MAXP, progress + 2.6);
+    for (let t = t0; t <= t1 + 1e-6; t += 0.08) {
+      const tt = Math.min(t1, t);
+      const x = g.ax + (tt - progress) * g.spx;
+      const y = g.uTop + uShape(tt / MAXP) * g.uDip;
+      d += (first ? "M" : "L") + x.toFixed(1) + " " + y.toFixed(1) + " ";
+      first = false;
+    }
     trackPath.setAttribute("d", d);
 
-    // blob rings — outer radius of each layer so its AREA ∝ its bytes
+    // the box follows the U (group transform = immediate); the nested squares
+    // only change size when a layer snaps at a node.
+    const cy = g.uTop + uShape(progress / MAXP) * g.uDip + g.gap;
+    blobG.setAttribute("transform", "translate(" + g.ax.toFixed(1) + " " + cy.toFixed(1) + ")");
+
     const layers = layersAt(progress);
-    let total = 0;
-    layers.forEach(function (l) { total += l.bytes; });
+    let total = 0; layers.forEach(function (l) { total += l.bytes; });
     let cum = 0;
-    const rings = layers.map(function (l) {
-      cum += l.bytes;
-      return { color: l.color, r: g.R * Math.sqrt(cum / total), partial: l.partial };
-    });
-    // draw outermost first so the bright core lands on top
-    rings.sort(function (a, b) { return b.r - a.r; });
-    ensureCircles(rings.length);
-    circles.forEach(function (c, i) {
-      if (i < rings.length) {
-        const ring = rings[i];
-        c.setAttribute("cx", g.ax); c.setAttribute("cy", g.blobY);
-        c.setAttribute("r", Math.max(0, ring.r).toFixed(1));
-        c.setAttribute("fill", "var(" + ring.color + ")");
-        // the freshly-arriving (outermost, partial) ring gets a bright edge
-        if (ring.partial && i === 0) { c.setAttribute("stroke", "#ffffff"); c.setAttribute("stroke-width", "2"); c.setAttribute("stroke-opacity", "0.8"); }
-        else { c.removeAttribute("stroke"); }
-        c.style.display = "";
-      } else {
-        c.style.display = "none";
-      }
+    const sq = layers.map(function (l) { cum += l.bytes; return { color: l.color, hs: g.R * Math.sqrt(cum / total) }; });
+    sq.sort(function (a, b) { return b.hs - a.hs; });   // outermost (largest) first
+    ensureRects(sq.length);
+    rects.forEach(function (r, i) {
+      if (i < sq.length) {
+        const hs = sq[i].hs;
+        r.setAttribute("x", (-hs).toFixed(1));
+        r.setAttribute("y", (-hs).toFixed(1));
+        r.setAttribute("width", (hs * 2).toFixed(1));
+        r.setAttribute("height", (hs * 2).toFixed(1));
+        r.setAttribute("rx", Math.min(15, hs * 0.16).toFixed(1));
+        r.setAttribute("fill", "var(" + sq[i].color + ")");
+        r.style.display = "";
+      } else { r.style.display = "none"; }
     });
 
-    // tap target sized to the blob
+    // tap target (square) tracks the box
     hit.style.width = hit.style.height = (g.R * 2) + "px";
-    hit.style.transform = "translate(" + (g.ax - g.R) + "px," + (g.blobY - g.R) + "px)";
+    hit.style.transform = "translate(" + (g.ax - g.R) + "px," + (cy - g.R) + "px)";
 
-    // dots
     dots.forEach(function (dot, i) {
       dot.classList.toggle("done", i <= progress + 0.01);
       dot.classList.toggle("current", Math.round(progress) === i);

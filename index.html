@@ -31,10 +31,15 @@
 <body>
   <header class="topbar">
     <div class="brand"><span class="brand-mark" aria-hidden="true">⌘</span> OSI Viz</div>
-    <button id="help-btn" class="ghost" aria-haspopup="dialog" aria-label="About">?</button>
+    <div class="topbar-actions">
+      <button id="new-req" class="ghost pill" aria-label="Generate a new random request">🎲<span class="pill-label">New request</span></button>
+      <button id="help-btn" class="ghost" aria-haspopup="dialog" aria-label="About">?</button>
+    </div>
   </header>
 
   <main id="stage" tabindex="0" aria-label="Data encapsulation. Scroll or swipe to move the data along its path; press the arrow keys to step; tap the data to inspect its headers.">
+    <!-- the current request being visualised -->
+    <div id="req-label" aria-live="polite"></div>
     <!-- dashed, frosted bounding box that always encloses the data -->
     <div id="blob-bound" aria-hidden="true"></div>
     <!-- track curve + the data grid live in one full-bleed SVG -->
@@ -81,8 +86,8 @@
       <button class="close" id="help-close" aria-label="Close">✕</button>
       <h2>One request, wrapped for delivery</h2>
       <p>Follow a single request as it travels left&nbsp;→&nbsp;right. Each stop wraps it in one more header, so the data grows a new coloured block.</p>
-      <p>The <b>bright core is the real data</b> the app cares about. Watch it shrink to a sliver as delivery metadata piles on — that ratio is the whole idea.</p>
-      <p class="muted">Scroll or swipe to move the data. Each node's colour is the header it adds. Tap the data to see its real headers, as a tool like <code>tcpdump</code> would show them.</p>
+      <p>The <b>bright core is the request body</b> the app is sending. Watch it shrink to a sliver as delivery metadata piles on — that ratio is the whole idea. A <b>GET</b> or <b>OPTIONS</b> has no body at all, so the core is empty: every byte is envelope.</p>
+      <p class="muted">Scroll or swipe to move the data. Each node's colour is the header it adds. Tap the data to see its real headers, as <code>tcpdump</code> would show them. Hit <b>🎲 New request</b> to generate a fresh POST, GET, preflight and more.</p>
       <button class="primary" id="help-start">Start</button>
     </div>
   </div>

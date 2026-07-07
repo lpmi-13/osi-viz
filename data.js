@@ -1,6 +1,14 @@
 /* ============================================================
    data.js — model for the full journey (client L7 → overlay → server L7).
-   ORDER  : the canonical layer stack, inner → outer (app is the core).
+
+   A "request" is an L7 story (method, path, optional body) wrapped in the
+   fixed transport / network / overlay headers. Requests are generated on
+   demand so the visual can show real variety:
+     • GET / DELETE / OPTIONS carry NO body — every byte is metadata.
+     • POST / PUT / PATCH carry a JSON body — that body is the bright core.
+
+   ORDER  : the six-layer stack for the current request, inner → outer.
+            layer[0] = app (the body, may be 0 bytes), layer[5] = VXLAN.
    nodes  : the 12 stations along the valley. `n` = how many layers are
             on the data at that station (1..6); depth = n - 1 drives the
             gentle down-then-up slope.
@@ -8,42 +16,133 @@
 window.OSI = (function () {
   "use strict";
 
-  const payload = { bytes: 17, text: '{"user_id":12345}' };
+  const enc = new TextEncoder();
+  const byteLen = function (s) { return s ? enc.encode(s).length : 0; };   // real UTF-8 length
+  const rint = function (a, b) { return a + Math.floor(Math.random() * (b - a + 1)); };
+  const pick = function (a) { return a[Math.floor(Math.random() * a.length)]; };
 
-  // Canonical encapsulation order. Block area ∝ bytes; colour = the node
-  // that adds/strips it. Fields + tool output feed the tap inspector.
-  const ORDER = [
-    { key: "app", color: "--c-app", bytes: payload.bytes,
-      decode: "payload  " + payload.text,
-      fields: [payload.text + "   (" + payload.bytes + " bytes — the whole point of the request)"],
-      tool: { cmd: "# what the app handed to the socket", out: payload.text } },
-    { key: "http", color: "--c-http", bytes: 80,
-      decode: "HTTP  GET /api/users/12345",
-      fields: ["GET /api/users/12345 HTTP/2", "content-type: application/json"],
-      tool: { cmd: "curl -v https://api-service/api/users/12345",
-        out: "> GET /api/users/12345 HTTP/2\n> content-type: application/json" } },
-    { key: "tls", color: "--c-tls", bytes: 29,
+  const HOST = "api-service";
+  const NAMES = ["ada", "grace", "lin", "kofi", "mira", "sam", "yuki", "noor"];
+  const ROLES = ["engineer", "admin", "analyst", "viewer", "operator"];
+
+  // ---- L7 request catalogue --------------------------------------------
+  // Each returns { method, path, body|null, headers[], note?, tool:{cmd,out} }.
+  function get() {
+    const path = "/api/users/" + rint(1000, 99999);
+    return {
+      method: "GET", path: path, body: null,
+      note: "A GET has no request body — the resource is named entirely in the path, so every byte on the wire is delivery metadata.",
+      headers: ["GET " + path + " HTTP/2", "host: " + HOST, "accept: application/json"],
+      tool: { cmd: "curl -v https://" + HOST + path,
+        out: "> GET " + path + " HTTP/2\n> accept: application/json\n<\n< HTTP/2 200\n< content-type: application/json" } };
+  }
+  function del() {
+    const path = "/api/users/" + rint(1000, 99999);
+    return {
+      method: "DELETE", path: path, body: null,
+      note: "DELETE carries no body — the target is named in the path.",
+      headers: ["DELETE " + path + " HTTP/2", "host: " + HOST, "authorization: Bearer …"],
+      tool: { cmd: "curl -X DELETE https://" + HOST + path + " -H 'Authorization: Bearer …'",
+        out: "> DELETE " + path + " HTTP/2\n<\n< HTTP/2 204 No Content" } };
+  }
+  function options() {
+    const path = "/api/users";
+    return {
+      method: "OPTIONS", path: path, body: null,
+      note: "A CORS preflight: before the real request, the browser asks the server which methods and origins are allowed. No body — it's all headers.",
+      headers: ["OPTIONS " + path + " HTTP/2", "origin: https://app.example.com", "access-control-request-method: POST"],
+      tool: { cmd: "curl -X OPTIONS https://" + HOST + path + " \\\n    -H 'Origin: https://app.example.com' \\\n    -H 'Access-Control-Request-Method: POST'",
+        out: "<\n< HTTP/2 204 No Content\n< access-control-allow-origin: https://app.example.com\n< access-control-allow-methods: GET, POST, PUT, DELETE" } };
+  }
+  function post() {
+    const body = JSON.stringify({ name: pick(NAMES), role: pick(ROLES) });
+    return withBody("POST", "/api/users", body, "201 Created");
+  }
+  function put() {
+    const body = JSON.stringify({ role: pick(ROLES) });
+    return withBody("PUT", "/api/users/" + rint(1000, 99999), body, "200 OK");
+  }
+  function patch() {
+    const body = JSON.stringify({ status: pick(["active", "suspended", "invited"]) });
+    return withBody("PATCH", "/api/users/" + rint(1000, 99999), body, "200 OK");
+  }
+  function withBody(method, path, body, status) {
+    return {
+      method: method, path: path, body: body,
+      headers: [method + " " + path + " HTTP/2", "host: " + HOST,
+        "content-type: application/json", "content-length: " + byteLen(body)],
+      tool: { cmd: "curl -X " + method + " https://" + HOST + path + " \\\n    -H 'content-type: application/json' -d '" + body + "'",
+        out: "> " + method + " " + path + " HTTP/2\n> content-length: " + byteLen(body) + "\n" + body + "\n<\n< HTTP/2 " + status } };
+  }
+
+  const CATALOG = [get, post, put, patch, del, options];
+
+  // ---- wrap an L7 request in the fixed lower-layer headers --------------
+  // TLS/TCP/IP/VXLAN header sizes are real and fixed; only the app (body) and
+  // HTTP framing sizes track the actual request. Ports/seq vary per request.
+  function buildORDER(r) {
+    const sport = rint(49152, 65535);
+    const seq = rint(1000, 9999999);
+    const bodyBytes = byteLen(r.body);
+    const httpBytes = byteLen(r.headers.join("\r\n") + "\r\n\r\n");
+    const tlsBytes = 29;
+    const l4payload = tlsBytes + httpBytes + bodyBytes;   // bytes TCP carries
+
+    const app = r.body
+      ? { key: "app", color: "--c-app", bytes: bodyBytes,
+          decode: "body  " + r.body,
+          fields: [r.body + "   (" + bodyBytes + " bytes — the application payload)"],
+          tool: { cmd: "# what the app handed to the socket", out: r.body } }
+      : { key: "app", color: "--c-app", bytes: 0,
+          decode: "body  (none)",
+          fields: [r.note || ("A " + r.method + " request has no body — 0 application bytes.")],
+          tool: { cmd: "# a " + r.method + " has no request body", out: "(no body)" } };
+
+    const http = { key: "http", color: "--c-http", bytes: httpBytes,
+      decode: "HTTP  " + r.method + " " + r.path,
+      fields: r.headers.concat(r.body ? [] : ["(no body)"]),
+      tool: r.tool };
+
+    const tls = { key: "tls", color: "--c-tls", bytes: tlsBytes,
       decode: "TLS 1.3  Application Data (encrypted)",
-      fields: ["TLSv1.3 · AES-128-GCM", "record: Application Data (23)"],
-      tool: { cmd: "openssl s_client -connect api-service:443",
-        out: "Cipher: TLS_AES_128_GCM_SHA256\nApplication Data (23), len 74   # ciphertext" } },
-    { key: "tcp", color: "--c-tcp", bytes: 20,
-      decode: "TCP  52134 → 443  seq 1001  [ACK,PSH]",
-      fields: ["sport 52134 → dport 443", "seq 1001 · ack 5001", "flags [ACK,PSH]"],
+      fields: ["TLSv1.3 · AES-128-GCM", "record: Application Data (23)", "wraps the HTTP request above"],
+      tool: { cmd: "openssl s_client -connect " + HOST + ":443",
+        out: "Cipher: TLS_AES_128_GCM_SHA256\nApplication Data (23), len " + (httpBytes + bodyBytes) + "   # ciphertext" } };
+
+    const tcp = { key: "tcp", color: "--c-tcp", bytes: 20,
+      decode: "TCP  " + sport + " → 443  seq " + seq + "  [ACK,PSH]",
+      fields: ["sport " + sport + " → dport 443", "seq " + seq, "flags [ACK,PSH]"],
       tool: { cmd: "ss -tiep dst 10.244.2.10",
-        out: "ESTAB 10.244.1.5:52134 10.244.2.10:443\n  mss:1460 bytes_sent:74" } },
-    { key: "ip", color: "--c-ip", bytes: 20,
+        out: "ESTAB 10.244.1.5:" + sport + " 10.244.2.10:443\n  mss:1460 bytes_sent:" + l4payload } };
+
+    const ip = { key: "ip", color: "--c-ip", bytes: 20,
       decode: "IP  10.244.1.5 → 10.244.2.10  ttl 64",
       fields: ["src 10.244.1.5 → dst 10.244.2.10", "ttl 64 · proto TCP(6)"],
       tool: { cmd: "ip route get 10.244.2.10",
-        out: "10.244.2.10 via 10.244.1.1 dev eth0 src 10.244.1.5" } },
-    { key: "vxlan", color: "--c-vxlan", bytes: 50,
+        out: "10.244.2.10 via 10.244.1.1 dev eth0 src 10.244.1.5" } };
+
+    const vxlan = { key: "vxlan", color: "--c-vxlan", bytes: 50,
       decode: "VXLAN  192.168.1.10 → .11  udp 4789  vni 42",
       fields: ["outer 192.168.1.10 → 192.168.1.11", "udp 4789 · vni 42 (L2 frame over the underlay)"],
       tool: { cmd: "tcpdump -ni eth0 'udp port 4789'",
-        out: "IP 192.168.1.10 > 192.168.1.11: VXLAN vni 42\n  IP 10.244.1.5.52134 > 10.244.2.10.443: tcp 74" } }
-  ];
+        out: "IP 192.168.1.10 > 192.168.1.11: VXLAN vni 42\n  IP 10.244.1.5." + sport + " > 10.244.2.10.443: tcp " + l4payload } };
 
+    return [app, http, tls, tcp, ip, vxlan];
+  }
+
+  function model(r) {
+    return { method: r.method, path: r.path, hasBody: !!r.body,
+      label: r.method + " " + r.path, ORDER: buildORDER(r) };
+  }
+
+  // A fixed, accurate POST for first load — a real body, stable across reloads.
+  function defaultRequest() {
+    const body = '{"name":"ada","role":"engineer"}';
+    return model(withBody("POST", "/api/users", body, "201 Created"));
+  }
+  function randomRequest() { return model(pick(CATALOG)()); }
+
+  // ---- nodes ------------------------------------------------------------
   // The valley: down the client stack, across the underlay (flat bottom
   // between the two VXLAN nodes), then up the server stack.
   const nodes = [
@@ -61,5 +160,5 @@ window.OSI = (function () {
     { name: "Server",  sub: "api-service · 10.244.2.10",  icon: "🖥️", n: 1 }
   ];
 
-  return { payload: payload, ORDER: ORDER, nodes: nodes };
+  return { nodes: nodes, defaultRequest: defaultRequest, randomRequest: randomRequest };
 })();

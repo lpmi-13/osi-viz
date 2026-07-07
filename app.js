@@ -9,7 +9,8 @@
   "use strict";
   const D = window.OSI;
   const NODES = D.nodes;
-  const ORDER = D.ORDER;                 // canonical layer stack, inner → outer
+  let REQ = D.defaultRequest();          // current request being visualised
+  let ORDER = REQ.ORDER;                 // its six-layer stack, inner → outer
   const MAXP = NODES.length - 1;
   const SVGNS = "http://www.w3.org/2000/svg";
   const uShape = function (s) { return 4 * s * (1 - s); };  // 0 at ends, 1 at the bottom of the U
@@ -324,6 +325,31 @@
   document.getElementById("detail-close").addEventListener("click", closeDetail);
   detail.addEventListener("click", function (e) { if (e.target === detail) closeDetail(); });
 
+  // ---------- request generator ----------
+  const reqLabel = document.getElementById("req-label");
+  function updateReqLabel() {
+    reqLabel.innerHTML =
+      '<span class="req-method">' + REQ.method + '</span>' +
+      '<span class="req-path">' + REQ.path + '</span>' +
+      '<span class="req-body">' + (REQ.hasBody ? "with body" : "no body") + '</span>';
+    reqLabel.classList.remove("pulse");
+    void reqLabel.offsetWidth;          // restart the highlight animation
+    reqLabel.classList.add("pulse");
+  }
+  function setRequest(req) {
+    REQ = req; ORDER = req.ORDER;
+    updateReqLabel();
+    // restart the journey at the client so the new request tells its story
+    stopTween();
+    anim = null; if (animRaf) { cancelAnimationFrame(animRaf); animRaf = null; }
+    progress = 0; lastCount = layersAt(0).length;
+    if (!detail.hidden) closeDetail();
+    render();
+  }
+  document.getElementById("new-req").addEventListener("click", function () {
+    setRequest(D.randomRequest());
+  });
+
   // ---------- guide ----------
   const help = document.getElementById("help");
   const helpStart = document.getElementById("help-start");
@@ -340,6 +366,7 @@
 
   // ---------- init ----------
   window.addEventListener("resize", render);
+  updateReqLabel();
   render();
   openHelp(true);
 })();

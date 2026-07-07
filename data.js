@@ -145,20 +145,61 @@ window.OSI = (function () {
   // ---- nodes ------------------------------------------------------------
   // The valley: down the client stack, across the underlay (flat bottom
   // between the two VXLAN nodes), then up the server stack.
+  // `layer` = the OSI-ish number of the node's outermost layer (app & HTTP
+  // both live at L7; TLS at L6; TCP L4; IP L3; the VXLAN overlay frame at L2).
   const nodes = [
-    { name: "Client",  sub: "frontend · 10.244.1.5",     icon: "🖥️", n: 1 },
-    { name: "HTTP",    sub: "request framing",            icon: "🌐", n: 2 },
-    { name: "TLS",     sub: "encryption",                 icon: "🔒", n: 3 },
-    { name: "TCP",     sub: "transport",                  icon: "🔌", n: 4 },
-    { name: "IP",      sub: "network",                    icon: "🧭", n: 5 },
-    { name: "VXLAN",   sub: "overlay · client CNI",       icon: "🛰️", n: 6 },
-    { name: "VXLAN",   sub: "overlay · server CNI",       icon: "🛰️", n: 6 },
-    { name: "IP",      sub: "kernel routing",             icon: "🧭", n: 5 },
-    { name: "TCP",     sub: "socket",                     icon: "🔌", n: 4 },
-    { name: "TLS",     sub: "decrypt",                    icon: "🔒", n: 3 },
-    { name: "HTTP",    sub: "parse",                      icon: "🌐", n: 2 },
-    { name: "Server",  sub: "api-service · 10.244.2.10",  icon: "🖥️", n: 1 }
+    { name: "Client",  sub: "frontend · 10.244.1.5",     icon: "🖥️", n: 1, layer: "L7" },
+    { name: "HTTP",    sub: "request framing",            icon: "🌐", n: 2, layer: "L7" },
+    { name: "TLS",     sub: "encryption",                 icon: "🔒", n: 3, layer: "L6" },
+    { name: "TCP",     sub: "transport",                  icon: "🔌", n: 4, layer: "L4" },
+    { name: "IP",      sub: "network",                    icon: "🧭", n: 5, layer: "L3" },
+    { name: "VXLAN",   sub: "overlay · client CNI",       icon: "🛰️", n: 6, layer: "L2" },
+    { name: "VXLAN",   sub: "overlay · server CNI",       icon: "🛰️", n: 6, layer: "L2" },
+    { name: "IP",      sub: "kernel routing",             icon: "🧭", n: 5, layer: "L3" },
+    { name: "TCP",     sub: "socket",                     icon: "🔌", n: 4, layer: "L4" },
+    { name: "TLS",     sub: "decrypt",                    icon: "🔒", n: 3, layer: "L6" },
+    { name: "HTTP",    sub: "parse",                      icon: "🌐", n: 2, layer: "L7" },
+    { name: "Server",  sub: "api-service · 10.244.2.10",  icon: "🖥️", n: 1, layer: "L7" }
   ];
 
-  return { nodes: nodes, defaultRequest: defaultRequest, randomRequest: randomRequest };
+  // ---- header anatomy ---------------------------------------------------
+  // Static field layouts for the "Headers & metadata" tab. Each row's cells
+  // flex by `w` (relative bit/byte width), so rows read like the classic RFC
+  // header diagrams. `flags` renders the control-bit boxes; `variable` marks
+  // stretchy trailers; `text` layers (HTTP) are shown as request/header lines.
+  const names = { app: "body", http: "HTTP", tls: "TLS", tcp: "TCP", ip: "IP", vxlan: "VXLAN" };
+
+  const formats = {
+    http: { name: "HTTP/2 message", text: true },
+    tls: { name: "TLS 1.3 record", rows: [
+      { cells: [ { label: "Content type", w: 8, sub: "1 B · 23" }, { label: "Legacy version", w: 16, sub: "2 B" }, { label: "Length", w: 16, sub: "2 B" } ] },
+      { cells: [ { label: "AEAD nonce + authentication tag", w: 40, sub: "~24 B", variable: true } ] }
+    ] },
+    tcp: { name: "TCP header", rows: [
+      { cells: [ { label: "Source port", w: 16, sub: "16 bits" }, { label: "Destination port", w: 16, sub: "16 bits" } ] },
+      { cells: [ { label: "Sequence number", w: 32, sub: "32 bits" } ] },
+      { cells: [ { label: "Acknowledgement number", w: 32, sub: "32 bits" } ] },
+      { cells: [ { label: "Data offset", w: 4, sub: "4b" }, { label: "Reserved", w: 4, sub: "4b" }, { label: "Flags", w: 8, flags: ["URG", "ACK", "PSH", "RST", "SYN", "FIN"] }, { label: "Window", w: 16, sub: "16 bits" } ] },
+      { cells: [ { label: "Checksum", w: 16, sub: "16 bits" }, { label: "Urgent pointer", w: 16, sub: "16 bits" } ] },
+      { cells: [ { label: "Options and padding", w: 32, sub: "variable", variable: true } ] }
+    ] },
+    ip: { name: "IPv4 header", rows: [
+      { cells: [ { label: "Version", w: 4, sub: "4b" }, { label: "IHL", w: 4, sub: "4b" }, { label: "DSCP·ECN", w: 8, sub: "8b" }, { label: "Total length", w: 16, sub: "16 bits" } ] },
+      { cells: [ { label: "Identification", w: 16, sub: "16 bits" }, { label: "Flags", w: 3, sub: "3b" }, { label: "Fragment offset", w: 13, sub: "13b" } ] },
+      { cells: [ { label: "TTL", w: 8, sub: "8b" }, { label: "Protocol", w: 8, sub: "8b" }, { label: "Header checksum", w: 16, sub: "16 bits" } ] },
+      { cells: [ { label: "Source address", w: 32, sub: "32 bits" } ] },
+      { cells: [ { label: "Destination address", w: 32, sub: "32 bits" } ] },
+      { cells: [ { label: "Options and padding", w: 32, sub: "variable", variable: true } ] }
+    ] },
+    vxlan: { name: "VXLAN encapsulation", rows: [
+      { cells: [ { label: "Outer Ethernet", w: 14, sub: "14 B", variable: true } ] },
+      { cells: [ { label: "Outer IPv4", w: 20, sub: "20 B", variable: true } ] },
+      { cells: [ { label: "Outer UDP · dport 4789", w: 8, sub: "8 B", variable: true } ] },
+      { cells: [ { label: "VXLAN flags", w: 8, sub: "8b" }, { label: "Reserved", w: 24, sub: "24b" } ] },
+      { cells: [ { label: "VNI · 42", w: 24, sub: "24b" }, { label: "Reserved", w: 8, sub: "8b" } ] }
+    ] }
+  };
+
+  return { nodes: nodes, defaultRequest: defaultRequest, randomRequest: randomRequest,
+    formats: formats, names: names };
 })();

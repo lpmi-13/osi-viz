@@ -11,6 +11,8 @@
   const NODES = D.nodes;
   let REQ = D.defaultRequest();          // current request being visualised
   let ORDER = REQ.ORDER;                 // its six-layer stack, inner → outer
+  const FORMATS = D.formats;             // static header-field layouts
+  const LNAME = D.names;                 // short layer names for the data field
   const MAXP = NODES.length - 1;
   const SVGNS = "http://www.w3.org/2000/svg";
   const uShape = function (s) { return 4 * s * (1 - s); };  // 0 at ends, 1 at the bottom of the U
@@ -40,8 +42,10 @@
     const el = document.createElement("div");
     el.className = "node";
     el.style.color = "var(" + ORDER[n.n - 1].color + ")";   // node colour = its outermost layer
+    el.style.setProperty("--nc", "var(" + ORDER[n.n - 1].color + ")");  // for the layer badge fill
     el.innerHTML =
-      '<div class="node-icon">' + n.icon + "</div>" +
+      '<div class="node-icon">' + n.icon +
+        (n.layer ? '<span class="node-layer">' + n.layer + "</span>" : "") + "</div>" +
       '<div class="node-name-row"><span class="node-swatch"></span><span class="node-name">' + n.name + "</span></div>" +
       '<div class="node-sub">' + n.sub + "</div>";
     nodesWrap.appendChild(el);
@@ -277,6 +281,56 @@
     pgtabs.forEach(function (t, i) { t.setAttribute("aria-selected", i === pg); });
   }
 
+  // Build the header-anatomy diagram for the outermost present layer.
+  function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }); }
+  function headerAnatomy(present) {
+    const outer = present[present.length - 1];
+    const inner = present.slice(0, -1);
+    const innerBytes = inner.reduce(function (s, l) { return s + l.bytes; }, 0);
+    const innerNames = inner.slice().reverse().map(function (l) { return LNAME[l.key]; }).join(" · ");
+
+    // the Client node's outermost "layer" is the raw body — no protocol header
+    if (outer.key === "app") {
+      return '<p class="hf-note">This is the raw <b>application data</b> — the request body the app is sending, before any protocol header is wrapped around it.</p>' +
+        '<div class="hf-data"><div class="hf-data-t">Data<span class="b">' + outer.bytes + ' bytes</span></div>' +
+        '<div class="hf-data-s">' + (outer.bytes ? "the JSON body itself" : "no body — this request carries none") + '</div></div>';
+    }
+
+    const fmt = FORMATS[outer.key];
+    // top schematic — Header | Data, sized in proportion (echoes the RFC diagrams)
+    let html = '<div class="hf-split" style="--a:var(' + outer.color + ')">' +
+      '<div class="hf-split-h" style="flex:' + Math.max(1, outer.bytes) + '">' + esc(LNAME[outer.key]) + ' header<span>' + outer.bytes + ' B</span></div>' +
+      '<div class="hf-split-d" style="flex:' + Math.max(1, innerBytes) + '">Data<span>' + innerBytes + ' B</span></div>' +
+      '</div>';
+
+    html += '<div class="hf" style="--a:var(' + outer.color + ')">';
+    html += '<div class="hf-title">' + esc(fmt.name) + ' · ' + outer.bytes + ' bytes</div>';
+    if (fmt.text) {
+      html += outer.fields.map(function (f, i) {
+        return '<div class="hf-line' + (i === 0 ? " hf-line-req" : "") + '">' + esc(f) + "</div>";
+      }).join("");
+    } else {
+      fmt.rows.forEach(function (row) {
+        html += '<div class="hf-row">';
+        row.cells.forEach(function (cell) {
+          let body = '<span class="hf-l">' + esc(cell.label) + "</span>";
+          if (cell.flags) body += '<span class="hf-flags">' + cell.flags.map(function (fl) { return '<span title="' + fl + '">' + fl.split("").join("<br>") + "</span>"; }).join("") + "</span>";
+          else if (cell.sub) body += '<span class="hf-s">' + esc(cell.sub) + "</span>";
+          html += '<div class="hf-c' + (cell.variable ? " hf-var" : "") + '" style="flex:' + cell.w + '">' + body + "</div>";
+        });
+        html += "</div>";
+      });
+    }
+    html += "</div>";
+
+    // the unified, collapsed data field
+    const desc = innerBytes === 0 ? "no encapsulated data — this request has an empty body"
+      : "everything inside the " + LNAME[outer.key] + " header, collapsed: " + innerNames;
+    html += '<div class="hf-data"><div class="hf-data-t">Data<span class="b">' + innerBytes + ' bytes</span></div>' +
+      '<div class="hf-data-s">' + desc + "</div></div>";
+    return html;
+  }
+
   function openDetail() {
     const nAt = NODES[Math.round(progress)].n;          // layers on the packet here
     const present = ORDER.slice(0, nAt);                // inner → outer
@@ -297,15 +351,9 @@
     document.getElementById("detail-cmd").textContent = "$ " + outer.tool.cmd;
     document.getElementById("detail-out").textContent = outer.tool.out;
 
-    // Page 2 — every wrapping header + its metadata, merged into one section.
-    let html = "";
-    present.slice().reverse().forEach(function (l) {
-      html += '<div class="hdr-block" style="border-left-color:var(' + l.color + ')">' +
-        '<div class="hdr-title">' + l.decode.split("  ")[0] + '<span class="b">' + l.bytes + ' bytes</span></div>' +
-        l.fields.map(function (f) { return '<div class="hdr-field">' + f + "</div>"; }).join("") +
-        "</div>";
-    });
-    document.getElementById("detail-headers").innerHTML = html;
+    // Page 2 — the anatomy of the OUTERMOST header, with everything inside
+    // collapsed into one unified "Data" field.
+    document.getElementById("detail-headers").innerHTML = headerAnatomy(present);
 
     setPage(0);
     detail.hidden = false;

@@ -309,6 +309,10 @@
 
     setPage(0);
     detail.hidden = false;
+    // the routing panes scroll horizontally (long tcpdump / decode lines);
+    // always reopen scrolled fully left, whatever a previous open left behind
+    document.getElementById("detail-decode").scrollLeft = 0;
+    document.getElementById("detail-out").scrollLeft = 0;
   }
   function closeDetail() { detail.hidden = true; stage.focus(); }
 

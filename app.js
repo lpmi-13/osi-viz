@@ -311,20 +311,10 @@
   }
   function closeDetail() { detail.hidden = true; stage.focus(); }
 
+  // Pages switch on tab clicks only. We deliberately do NOT swipe between
+  // them: the routing page scrolls horizontally (long tcpdump / decode lines),
+  // and a horizontal swipe there should scroll that content, not flip pages.
   pgtabs.forEach(function (t, i) { t.addEventListener("click", function () { setPage(i); }); });
-
-  // swipe between the two pages
-  let pgX = null, pgMoved = false;
-  const pager = document.getElementById("detail-pager");
-  pager.addEventListener("touchstart", function (e) { pgX = e.touches[0].clientX; pgMoved = false; }, { passive: true });
-  pager.addEventListener("touchmove", function (e) { if (pgX !== null && Math.abs(e.touches[0].clientX - pgX) > 6) pgMoved = true; }, { passive: true });
-  pager.addEventListener("touchend", function (e) {
-    if (pgX === null || !pgMoved) { pgX = null; return; }
-    const dx = e.changedTouches[0].clientX - pgX;
-    if (dx < -40 && curPage === 0) setPage(1);
-    else if (dx > 40 && curPage === 1) setPage(0);
-    pgX = null;
-  }, { passive: true });
 
   let hitMoved = false, hitStart = 0;
   hit.addEventListener("pointerdown", function (e) { hitStart = e.clientX + e.clientY; hitMoved = false; });

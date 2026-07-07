@@ -1,4 +1,4 @@
-# Encapsulation
+# OSI Viz
 
 An interactive visualization that makes **encapsulation** intuitive: follow one
 request as it travels left → right — down the client's stack getting wrapped layer

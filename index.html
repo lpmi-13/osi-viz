@@ -15,7 +15,9 @@
   </header>
 
   <main id="stage" tabindex="0" aria-label="Packet journey. Scroll or swipe to move the packet along its path; press the arrow keys to step; tap the packet to inspect its headers.">
-    <!-- track curve + the ring blob live in one full-bleed SVG -->
+    <!-- dashed, frosted bounding box that always encloses the packet -->
+    <div id="blob-bound" aria-hidden="true"></div>
+    <!-- track curve + the packet grid live in one full-bleed SVG -->
     <svg id="scene" aria-hidden="true"><path id="track-path" /><g id="blob"></g></svg>
 
     <!-- layer nodes (icons) float above the track -->
@@ -29,14 +31,27 @@
     <div id="progress" aria-hidden="true"><div id="progress-dots"></div></div>
   </main>
 
-  <!-- packet inspector (tap the blob) -->
+  <!-- packet inspector (tap the packet) — two swipeable pages -->
   <div id="detail" class="overlay" hidden>
     <div class="sheet-card" role="dialog" aria-modal="true" aria-label="Packet inspector">
       <button class="close" id="detail-close" aria-label="Close">✕</button>
-      <h2>Packet inspector</h2>
-      <p class="detail-sub" id="detail-sub"></p>
-      <pre class="decode" id="detail-decode"></pre>
-      <div class="term"><div class="term-cmd" id="detail-cmd"></div><pre class="term-out" id="detail-out"></pre></div>
+      <div class="pager-tabs" role="tablist" aria-label="Inspector pages">
+        <button class="pgtab" id="pgtab-0" role="tab" aria-selected="true">Routing</button>
+        <button class="pgtab" id="pgtab-1" role="tab" aria-selected="false">Headers &amp; metadata</button>
+      </div>
+      <div class="pager" id="detail-pager">
+        <div class="pager-track" id="pager-track">
+          <section class="page" role="tabpanel" aria-label="Routing">
+            <p class="detail-sub" id="detail-sub"></p>
+            <pre class="decode" id="detail-decode"></pre>
+            <div class="term"><div class="term-cmd" id="detail-cmd"></div><pre class="term-out" id="detail-out"></pre></div>
+          </section>
+          <section class="page" role="tabpanel" aria-label="Headers and metadata">
+            <div id="detail-headers" class="headers-detail"></div>
+          </section>
+        </div>
+      </div>
+      <p class="pager-hint" aria-hidden="true">swipe or tap the tabs to switch pages</p>
     </div>
   </div>
 

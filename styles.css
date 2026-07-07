@@ -1,7 +1,7 @@
 /* ============================================================
-   Packet Journey — simplified. One packet, a big ring blob, a
+   Encapsulation — simplified. One request, a big data blob, a
    curved track that scrolls left→right. Colour carries meaning;
-   the node that adds a ring shares its colour.
+   the node that adds a header shares its colour.
    ============================================================ */
 :root {
   --bg:      #0a0f1e;

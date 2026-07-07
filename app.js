@@ -1,8 +1,8 @@
 /* ============================================================
-   app.js — a camera that follows one packet along a U-shaped path:
+   app.js — a camera that follows one request along a U-shaped path:
    down the client's stack, across the underlay, up the server's.
-   The packet is a big box of nested colour squares (area ∝ bytes);
-   each layer's square SNAPS in/out as the packet reaches its node.
+   The data is a big byte-grid box (each header's area ∝ its bytes);
+   each layer's block flies in/out as the data reaches its node.
    Tap the box to inspect the real headers.
    ============================================================ */
 (function () {
@@ -264,7 +264,7 @@
     else if (e.key === "End") { e.preventDefault(); tweenTo(MAXP); }
   });
 
-  // ---------- inspector (tap the packet) ----------
+  // ---------- inspector (tap the data) ----------
   const detail = document.getElementById("detail");
   const pagerTrack = document.getElementById("pager-track");
   const pgtabs = [document.getElementById("pgtab-0"), document.getElementById("pgtab-1")];
@@ -336,10 +336,14 @@
 
   // ---------- guide ----------
   const help = document.getElementById("help");
+  const helpStart = document.getElementById("help-start");
+  // Start button only makes sense on the first-run guide; when reopened from
+  // the "?" button the reader is already moving, so a Close (✕) is enough.
+  function openHelp(firstRun) { helpStart.hidden = !firstRun; help.hidden = false; }
   function closeHelp() { help.hidden = true; stage.focus(); }
-  document.getElementById("help-btn").addEventListener("click", function () { help.hidden = false; });
+  document.getElementById("help-btn").addEventListener("click", function () { openHelp(false); });
   document.getElementById("help-close").addEventListener("click", closeHelp);
-  document.getElementById("help-start").addEventListener("click", closeHelp);
+  helpStart.addEventListener("click", closeHelp);
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape") { if (!detail.hidden) closeDetail(); else if (!help.hidden) closeHelp(); }
   });
@@ -347,5 +351,5 @@
   // ---------- init ----------
   window.addEventListener("resize", render);
   render();
-  help.hidden = false;
+  openHelp(true);
 })();

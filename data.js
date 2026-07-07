@@ -2,7 +2,7 @@
    data.js — model for the full journey (client L7 → overlay → server L7).
    ORDER  : the canonical layer stack, inner → outer (app is the core).
    nodes  : the 12 stations along the valley. `n` = how many layers are
-            on the packet at that station (1..6); depth = n - 1 drives the
+            on the data at that station (1..6); depth = n - 1 drives the
             gentle down-then-up slope.
    ============================================================ */
 window.OSI = (function () {
@@ -10,7 +10,7 @@ window.OSI = (function () {
 
   const payload = { bytes: 17, text: '{"user_id":12345}' };
 
-  // Canonical encapsulation order. Ring area ∝ bytes; colour = the node
+  // Canonical encapsulation order. Block area ∝ bytes; colour = the node
   // that adds/strips it. Fields + tool output feed the tap inspector.
   const ORDER = [
     { key: "app", color: "--c-app", bytes: payload.bytes,

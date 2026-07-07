@@ -32,7 +32,7 @@
     el.style.color = "var(" + ORDER[n.n - 1].color + ")";   // node colour = its outermost layer
     el.innerHTML =
       '<div class="node-icon">' + n.icon + "</div>" +
-      '<div class="node-name">' + n.name + "</div>" +
+      '<div class="node-name-row"><span class="node-swatch"></span><span class="node-name">' + n.name + "</span></div>" +
       '<div class="node-sub">' + n.sub + "</div>";
     nodesWrap.appendChild(el);
     return el;
@@ -50,11 +50,13 @@
   // ---------- geometry ----------
   function geom() {
     const w = stage.clientWidth, h = stage.clientHeight;
-    const R = Math.max(74, 0.2 * Math.min(w, h));       // half the max square's side
-    const gap = R + 96;                                 // the box hangs this far below its station
-    const uTop = 14;                                    // station Y at the U's rim (the L7 ends)
-    const uDip = Math.max(90, Math.min(h * 0.30, h - 84 - uTop - gap - R));  // depth of the U (clamped to fit)
-    return { w: w, h: h, ax: w * 0.46, spx: Math.max(w * 0.9, 340), R: R, gap: gap, uTop: uTop, uDip: uDip };
+    const R = Math.max(58, 0.16 * Math.min(w, h));      // scale of the packet bar
+    const halfH = R * 0.75;                             // half the bar's height (bar is ~2.6R × 1.5R)
+    const gap = R + 76;                                 // the bar hangs this far below its station
+    const uTop = 12;                                    // station Y at the U's rim (the L7 ends)
+    // A deep, tightly-spaced U so the slope is ~3× steeper than before.
+    const uDip = Math.max(170, Math.min(h * 0.6, h - 50 - halfH - uTop - gap));
+    return { w: w, h: h, ax: w * 0.46, spx: Math.max(w * 0.22, 116), R: R, gap: gap, uTop: uTop, uDip: uDip };
   }
 
   // Which squares are on the packet at position p, inner→outer. Discrete: the
@@ -103,33 +105,40 @@
     }
     trackPath.setAttribute("d", d);
 
-    // the box follows the U (group transform = immediate); the nested squares
-    // only change size when a layer snaps at a node.
+    // the bar follows the U (group transform = immediate); the header cells only
+    // change size when a layer snaps at a node.
     const cy = g.uTop + uShape(progress / MAXP) * g.uDip + g.gap;
     blobG.setAttribute("transform", "translate(" + g.ax.toFixed(1) + " " + cy.toFixed(1) + ")");
 
-    const layers = layersAt(progress);
+    // Boxy encapsulation diagram: headers stacked left → right (outermost first),
+    // the data cell on the right, each cell's width ∝ its bytes. A cell snaps in
+    // or out on the left at each node.
+    const layers = layersAt(progress);            // inner (data) → outer
     let total = 0; layers.forEach(function (l) { total += l.bytes; });
-    let cum = 0;
-    const sq = layers.map(function (l) { cum += l.bytes; return { color: l.color, hs: g.R * Math.sqrt(cum / total) }; });
-    sq.sort(function (a, b) { return b.hs - a.hs; });   // outermost (largest) first
-    ensureRects(sq.length);
+    const seq = layers.slice().reverse();          // outer → … → data (left to right)
+    const W = g.R * 2.6, H = g.R * 1.5;
+    ensureRects(seq.length);
+    let x = -W / 2;
     rects.forEach(function (r, i) {
-      if (i < sq.length) {
-        const hs = sq[i].hs;
-        r.setAttribute("x", (-hs).toFixed(1));
-        r.setAttribute("y", (-hs).toFixed(1));
-        r.setAttribute("width", (hs * 2).toFixed(1));
-        r.setAttribute("height", (hs * 2).toFixed(1));
-        r.setAttribute("rx", Math.min(15, hs * 0.16).toFixed(1));
-        r.setAttribute("fill", "var(" + sq[i].color + ")");
+      if (i < seq.length) {
+        const sw = W * seq[i].bytes / total;
+        r.setAttribute("x", x.toFixed(1));
+        r.setAttribute("y", (-H / 2).toFixed(1));
+        r.setAttribute("width", sw.toFixed(1));
+        r.setAttribute("height", H.toFixed(1));
+        r.setAttribute("rx", "2");
+        r.setAttribute("fill", "var(" + seq[i].color + ")");
+        r.setAttribute("stroke", "rgba(6,10,22,.9)");
+        r.setAttribute("stroke-width", "2");
         r.style.display = "";
+        x += sw;
       } else { r.style.display = "none"; }
     });
 
-    // tap target (square) tracks the box
-    hit.style.width = hit.style.height = (g.R * 2) + "px";
-    hit.style.transform = "translate(" + (g.ax - g.R) + "px," + (cy - g.R) + "px)";
+    // tap target tracks the bar
+    hit.style.width = W + "px";
+    hit.style.height = H + "px";
+    hit.style.transform = "translate(" + (g.ax - W / 2) + "px," + (cy - H / 2) + "px)";
 
     dots.forEach(function (dot, i) {
       dot.classList.toggle("done", i <= progress + 0.01);

@@ -131,8 +131,7 @@ window.OSI = (function () {
   }
 
   function model(r) {
-    return { method: r.method, path: r.path, hasBody: !!r.body,
-      label: r.method + " " + r.path, ORDER: buildORDER(r) };
+    return { method: r.method, path: r.path, hasBody: !!r.body, ORDER: buildORDER(r) };
   }
 
   // A fixed, accurate POST for first load — a real body, stable across reloads.

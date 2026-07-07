@@ -18,14 +18,14 @@
   const uShape = function (s) { return 4 * s * (1 - s); };  // 0 at ends, 1 at the bottom of the U
 
   const stage = document.getElementById("stage");
-  const scene = document.getElementById("scene");
   const trackPath = document.getElementById("track-path");
   const blobG = document.getElementById("blob");
   const nodesWrap = document.getElementById("nodes");
   const hit = document.getElementById("blob-hit");
-
   const bound = document.getElementById("blob-bound");
+
   const easeOutCubic = function (t) { return 1 - Math.pow(1 - t, 3); };
+  const esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
 
   // progress runs 0 .. MAXP (continuous). 0 = client L7, MAXP = server L7.
   let progress = 0;
@@ -41,8 +41,9 @@
   const nodeEls = NODES.map(function (n) {
     const el = document.createElement("div");
     el.className = "node";
-    el.style.color = "var(" + ORDER[n.n - 1].color + ")";   // node colour = its outermost layer
-    el.style.setProperty("--nc", "var(" + ORDER[n.n - 1].color + ")");  // for the layer badge fill
+    const col = "var(" + ORDER[n.n - 1].color + ")";        // node colour = its outermost layer
+    el.style.color = col;
+    el.style.setProperty("--nc", col);                      // for the layer badge fill
     el.innerHTML =
       '<div class="node-icon">' + esc(n.icon) +
         (n.layer ? '<span class="node-layer">' + esc(n.layer) + "</span>" : "") + "</div>" +
@@ -181,8 +182,9 @@
       r.style.display = "";
     });
 
-    // dashed frosted bounding box, sized to the settled grid (60-byte rows wide)
-    const settled = computeRegions(layersAt(progress), g.R);
+    // dashed frosted bounding box, sized to the settled grid (60-byte rows wide).
+    // While idle, drawLayers is already the settled set, so reuse cr.
+    const settled = anim ? computeRegions(layersAt(progress), g.R) : cr;
     const pad = 7, gridTop = settled.anchor - settled.rows * settled.rowH;
     bound.style.width = (settled.W + 2 * pad) + "px";
     bound.style.height = (settled.rows * settled.rowH + 2 * pad) + "px";
@@ -228,8 +230,7 @@
     const start = progress, t0 = performance.now(), dur = 420;
     (function step(now) {
       const k = Math.min(1, (now - t0) / dur);
-      const e = 1 - Math.pow(1 - k, 3);           // ease-out cubic
-      setProgress(start + (target - start) * e);
+      setProgress(start + (target - start) * easeOutCubic(k));
       if (k < 1) raf = requestAnimationFrame(step);
     })(t0);
   }
@@ -243,10 +244,10 @@
     setProgress(progress + delta / 1500);         // slower: ~one node per 1500px of scroll
   }, { passive: false });
 
-  let tStartX = 0, tStartY = 0, tStartP = 0, touching = false, moved = 0;
+  let tStartX = 0, tStartY = 0, tStartP = 0, touching = false;
   stage.addEventListener("touchstart", function (e) {
     if (e.touches.length !== 1) return;
-    touching = true; moved = 0; tStartP = progress;
+    touching = true; tStartP = progress;
     tStartX = e.touches[0].clientX; tStartY = e.touches[0].clientY;
     stopTween();
   }, { passive: true });
@@ -255,7 +256,6 @@
     const dx = e.touches[0].clientX - tStartX;
     const dy = e.touches[0].clientY - tStartY;
     const move = Math.abs(dx) >= Math.abs(dy) ? -dx : -dy;   // swipe left/up → forward
-    moved = Math.max(moved, Math.abs(dx), Math.abs(dy));
     e.preventDefault();
     setProgress(tStartP + move / 260);            // slower: ~260px of swipe per node
   }, { passive: false });
@@ -273,16 +273,22 @@
   const detail = document.getElementById("detail");
   const pagerTrack = document.getElementById("pager-track");
   const pgtabs = [document.getElementById("pgtab-0"), document.getElementById("pgtab-1")];
-  let curPage = 0;
+  const detailSub = document.getElementById("detail-sub");
+  const detailDecode = document.getElementById("detail-decode");
+  const detailCmd = document.getElementById("detail-cmd");
+  const detailOut = document.getElementById("detail-out");
+  const detailHeaders = document.getElementById("detail-headers");
 
   function setPage(pg) {
-    curPage = pg;
     pagerTrack.style.transform = "translateX(" + (-pg * 50) + "%)";
     pgtabs.forEach(function (t, i) { t.setAttribute("aria-selected", i === pg); });
   }
 
   // Build the header-anatomy diagram for the outermost present layer.
-  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+  function dataField(bytes, sub) {
+    return '<div class="hf-data"><div class="hf-data-t">Data<span class="b">' + bytes + ' bytes</span></div>' +
+      '<div class="hf-data-s">' + sub + "</div></div>";
+  }
   function headerAnatomy(present) {
     const outer = present[present.length - 1];
     const inner = present.slice(0, -1);
@@ -292,8 +298,7 @@
     // the Client node's outermost "layer" is the raw body — no protocol header
     if (outer.key === "app") {
       return '<p class="hf-note">This is the raw <b>application data</b> — the request body the app is sending, before any protocol header is wrapped around it.</p>' +
-        '<div class="hf-data"><div class="hf-data-t">Data<span class="b">' + outer.bytes + ' bytes</span></div>' +
-        '<div class="hf-data-s">' + (outer.bytes ? "the JSON body itself" : "no body — this request carries none") + '</div></div>';
+        dataField(outer.bytes, outer.bytes ? "the JSON body itself" : "no body — this request carries none");
     }
 
     const fmt = FORMATS[outer.key];
@@ -326,8 +331,7 @@
     // the unified, collapsed data field
     const desc = innerBytes === 0 ? "no encapsulated data — this request has an empty body"
       : "everything inside the " + LNAME[outer.key] + " header, collapsed: " + innerNames;
-    html += '<div class="hf-data"><div class="hf-data-t">Data<span class="b">' + innerBytes + ' bytes</span></div>' +
-      '<div class="hf-data-s">' + desc + "</div></div>";
+    html += dataField(innerBytes, desc);
     return html;
   }
 
@@ -336,7 +340,7 @@
     const present = ORDER.slice(0, nAt);                // inner → outer
     let bytes = 0; present.forEach(function (l) { bytes += l.bytes; });
 
-    document.getElementById("detail-sub").textContent =
+    detailSub.textContent =
       "frame · " + bytes + " bytes on the wire · " + present.length + " layer" + (present.length > 1 ? "s" : "");
 
     // Page 1 — Wireshark-style nested dissection, outermost header first.
@@ -346,21 +350,21 @@
       l.fields.forEach(function (f) { tree += indent + "    " + f + "\n"; });
       indent += "  ";
     });
-    document.getElementById("detail-decode").textContent = tree.replace(/\n$/, "");
+    detailDecode.textContent = tree.replace(/\n$/, "");
     const outer = present[present.length - 1];
-    document.getElementById("detail-cmd").textContent = "$ " + outer.tool.cmd;
-    document.getElementById("detail-out").textContent = outer.tool.out;
+    detailCmd.textContent = "$ " + outer.tool.cmd;
+    detailOut.textContent = outer.tool.out;
 
     // Page 2 — the anatomy of the OUTERMOST header, with everything inside
     // collapsed into one unified "Data" field.
-    document.getElementById("detail-headers").innerHTML = headerAnatomy(present);
+    detailHeaders.innerHTML = headerAnatomy(present);
 
     setPage(0);
     detail.hidden = false;
     // the routing panes scroll horizontally (long tcpdump / decode lines);
     // always reopen scrolled fully left, whatever a previous open left behind
-    document.getElementById("detail-decode").scrollLeft = 0;
-    document.getElementById("detail-out").scrollLeft = 0;
+    detailDecode.scrollLeft = 0;
+    detailOut.scrollLeft = 0;
   }
   function closeDetail() { detail.hidden = true; stage.focus(); }
 

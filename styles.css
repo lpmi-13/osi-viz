@@ -47,11 +47,41 @@ body { display: flex; flex-direction: column; }
   border: 1px solid var(--line); border-radius: 9px;
   background: radial-gradient(circle at 30% 30%, #24386e, #101a35);
 }
+.topbar-actions { display: flex; align-items: center; gap: 10px; }
 .ghost {
   border: 1px solid var(--line); background: var(--bg-2); color: var(--text);
-  width: 38px; height: 38px; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 15px;
+  height: 38px; min-width: 38px; padding: 0; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 15px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
 }
 .ghost:hover { border-color: var(--accent); }
+.ghost:active { transform: scale(.96); }
+.ghost.pill { padding: 0 14px; font-size: 14px; }
+.pill-label { font-weight: 650; letter-spacing: -0.01em; }
+@media (max-width: 470px) {          /* tight screens: die icon only */
+  .ghost.pill { padding: 0; min-width: 38px; }
+  .pill-label { display: none; }
+}
+
+/* the current-request pill, centred just under the top bar */
+#req-label {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 5;
+  display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px);
+  padding: 5px 8px 5px 6px; border-radius: 20px; white-space: nowrap; pointer-events: none;
+  background: rgba(10,15,30,.66); border: 1px solid var(--line);
+  font-family: ui-monospace, monospace; font-size: 12.5px;
+}
+#req-label .req-method {
+  background: var(--accent); color: #04122e; font-weight: 800;
+  padding: 2px 8px; border-radius: 14px; letter-spacing: .02em;
+}
+#req-label .req-path { color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+#req-label .req-body { color: var(--muted-2); }
+#req-label .req-body::before { content: "· "; }
+#req-label.pulse { animation: reqpulse 620ms cubic-bezier(.32,.72,0,1); }
+@keyframes reqpulse {
+  0% { transform: translateX(-50%) scale(.9); border-color: var(--accent); box-shadow: 0 0 0 4px rgba(127,176,255,.18); }
+  100% { transform: translateX(-50%) scale(1); }
+}
 
 /* ---------- stage ---------- */
 #stage {

@@ -1,0 +1,14 @@
+# Netlify security headers, applied to every response.
+# The app is fully self-contained: same-origin scripts/styles, an inline
+# data: URI favicon, no network calls, no fonts. So the policy can be tight.
+#   - script-src 'self'      : no inline <script> or on* handlers exist
+#   - style-src 'unsafe-inline': the JS sets style="..." attributes via innerHTML
+#   - img-src data:          : the favicon is an inline data: URI SVG
+#   - connect-src 'none'     : the app makes zero fetch/XHR/WebSocket calls
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Cross-Origin-Opener-Policy: same-origin
+  Permissions-Policy: accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(), geolocation=(), gyroscope=(), microphone=(), midi=(), payment=(), usb=()

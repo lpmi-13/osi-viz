@@ -44,10 +44,10 @@
     el.style.color = "var(" + ORDER[n.n - 1].color + ")";   // node colour = its outermost layer
     el.style.setProperty("--nc", "var(" + ORDER[n.n - 1].color + ")");  // for the layer badge fill
     el.innerHTML =
-      '<div class="node-icon">' + n.icon +
-        (n.layer ? '<span class="node-layer">' + n.layer + "</span>" : "") + "</div>" +
-      '<div class="node-name-row"><span class="node-swatch"></span><span class="node-name">' + n.name + "</span></div>" +
-      '<div class="node-sub">' + n.sub + "</div>";
+      '<div class="node-icon">' + esc(n.icon) +
+        (n.layer ? '<span class="node-layer">' + esc(n.layer) + "</span>" : "") + "</div>" +
+      '<div class="node-name-row"><span class="node-swatch"></span><span class="node-name">' + esc(n.name) + "</span></div>" +
+      '<div class="node-sub">' + esc(n.sub) + "</div>";
     nodesWrap.appendChild(el);
     return el;
   });
@@ -282,7 +282,7 @@
   }
 
   // Build the header-anatomy diagram for the outermost present layer.
-  function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }); }
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function headerAnatomy(present) {
     const outer = present[present.length - 1];
     const inner = present.slice(0, -1);
@@ -381,8 +381,8 @@
   const reqLabel = document.getElementById("req-label");
   function updateReqLabel() {
     reqLabel.innerHTML =
-      '<span class="req-method">' + REQ.method + '</span>' +
-      '<span class="req-path">' + REQ.path + '</span>' +
+      '<span class="req-method">' + esc(REQ.method) + '</span>' +
+      '<span class="req-path">' + esc(REQ.path) + '</span>' +
       '<span class="req-body">' + (REQ.hasBody ? "with body" : "no body") + '</span>';
     reqLabel.classList.remove("pulse");
     void reqLabel.offsetWidth;          // restart the highlight animation

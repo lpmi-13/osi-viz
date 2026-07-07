@@ -50,12 +50,12 @@
   // ---------- geometry ----------
   function geom() {
     const w = stage.clientWidth, h = stage.clientHeight;
-    const R = Math.max(58, 0.16 * Math.min(w, h));      // scale of the packet bar
-    const halfH = R * 0.75;                             // half the bar's height (bar is ~2.6R × 1.5R)
-    const gap = R + 76;                                 // the bar hangs this far below its station
+    const R = Math.max(52, 0.14 * Math.min(w, h));      // scale of the packet grid
+    const halfH = R * 0.9;                              // half the grid's max height (4 byte-rows)
+    const gap = R + 108;                                // the grid hangs this far below its station
     const uTop = 12;                                    // station Y at the U's rim (the L7 ends)
     // A deep, tightly-spaced U so the slope is ~3× steeper than before.
-    const uDip = Math.max(170, Math.min(h * 0.6, h - 50 - halfH - uTop - gap));
+    const uDip = Math.max(160, Math.min(h * 0.58, h - 66 - halfH - uTop - gap));
     return { w: w, h: h, ax: w * 0.46, spx: Math.max(w * 0.22, 116), R: R, gap: gap, uTop: uTop, uDip: uDip };
   }
 
@@ -110,35 +110,56 @@
     const cy = g.uTop + uShape(progress / MAXP) * g.uDip + g.gap;
     blobG.setAttribute("transform", "translate(" + g.ax.toFixed(1) + " " + cy.toFixed(1) + ")");
 
-    // Boxy encapsulation diagram: headers stacked left → right (outermost first),
-    // the data cell on the right, each cell's width ∝ its bytes. A cell snaps in
-    // or out on the left at each node.
+    // Byte-accurate encapsulation grid: ROW bytes per row, filled bottom row
+    // first, right → left, wrapping to the row above. The data anchors the
+    // bottom-right; each header's bytes continue leftward and upward, so new
+    // headers pile on top. Every cell's area is proportional to its bytes.
+    const ROW = 60;
     const layers = layersAt(progress);            // inner (data) → outer
     let total = 0; layers.forEach(function (l) { total += l.bytes; });
-    const seq = layers.slice().reverse();          // outer → … → data (left to right)
-    const W = g.R * 2.6, H = g.R * 1.5;
-    ensureRects(seq.length);
-    let x = -W / 2;
+    const rows = Math.max(1, Math.ceil(total / ROW));
+    const W = g.R * 2.4, rowH = g.R * 0.42, byteW = W / ROW;
+    const gridBottom = rows * rowH / 2;           // grid centred on the box centre
+    const regions = [];
+    let off = 0;
+    layers.forEach(function (l) {
+      let b = off; const e = off + l.bytes;
+      while (b < e) {
+        const row = Math.floor(b / ROW);
+        const posInRow = b % ROW;                 // bytes already placed in this row, from the right
+        const runEnd = Math.min(e, (row + 1) * ROW);
+        const runLen = runEnd - b;
+        const xRight = W / 2 - posInRow * byteW;
+        regions.push({
+          x: xRight - runLen * byteW,
+          y: gridBottom - (row + 1) * rowH,
+          w: runLen * byteW, h: rowH, color: l.color
+        });
+        b = runEnd;
+      }
+      off = e;
+    });
+    ensureRects(regions.length);
     rects.forEach(function (r, i) {
-      if (i < seq.length) {
-        const sw = W * seq[i].bytes / total;
-        r.setAttribute("x", x.toFixed(1));
-        r.setAttribute("y", (-H / 2).toFixed(1));
-        r.setAttribute("width", sw.toFixed(1));
-        r.setAttribute("height", H.toFixed(1));
-        r.setAttribute("rx", "2");
-        r.setAttribute("fill", "var(" + seq[i].color + ")");
-        r.setAttribute("stroke", "rgba(6,10,22,.9)");
-        r.setAttribute("stroke-width", "2");
+      if (i < regions.length) {
+        const rg = regions[i];
+        r.setAttribute("x", rg.x.toFixed(1));
+        r.setAttribute("y", rg.y.toFixed(1));
+        r.setAttribute("width", rg.w.toFixed(1));
+        r.setAttribute("height", rg.h.toFixed(1));
+        r.setAttribute("rx", "0");
+        r.setAttribute("fill", "var(" + rg.color + ")");
+        r.setAttribute("stroke", "rgba(6,10,22,.85)");
+        r.setAttribute("stroke-width", "1.5");
         r.style.display = "";
-        x += sw;
       } else { r.style.display = "none"; }
     });
 
-    // tap target tracks the bar
+    // tap target covers the grid
+    const gridH = rows * rowH;
     hit.style.width = W + "px";
-    hit.style.height = H + "px";
-    hit.style.transform = "translate(" + (g.ax - W / 2) + "px," + (cy - H / 2) + "px)";
+    hit.style.height = gridH + "px";
+    hit.style.transform = "translate(" + (g.ax - W / 2) + "px," + (cy - gridH / 2) + "px)";
 
     dots.forEach(function (dot, i) {
       dot.classList.toggle("done", i <= progress + 0.01);
@@ -171,7 +192,7 @@
     e.preventDefault();
     stopTween();
     const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-    setProgress(progress + delta / 620);          // ~one node per 620px of scroll
+    setProgress(progress + delta / 1500);         // slower: ~one node per 1500px of scroll
   }, { passive: false });
 
   let tStartX = 0, tStartY = 0, tStartP = 0, touching = false, moved = 0;
@@ -188,7 +209,7 @@
     const move = Math.abs(dx) >= Math.abs(dy) ? -dx : -dy;   // swipe left/up → forward
     moved = Math.max(moved, Math.abs(dx), Math.abs(dy));
     e.preventDefault();
-    setProgress(tStartP + move / (geom().spx * 0.7));
+    setProgress(tStartP + move / 260);            // slower: ~260px of swipe per node
   }, { passive: false });
   stage.addEventListener("touchend", function () { touching = false; }, { passive: true });
 

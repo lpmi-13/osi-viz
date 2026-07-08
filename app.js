@@ -32,7 +32,7 @@
   // boxy byte-grid (like the favicon): 50 bytes/row, bottom-anchored, right → left,
   // growing up; area ∝ bytes. The box hugs its rows, so it grows as layers pile on.
   const SVGNS = "http://www.w3.org/2000/svg";
-  const GRID_ROW = 50, GRID_W = 200, GROW = 24, GBW = GRID_W / GRID_ROW;
+  const GRID_ROW = 50, GRID_W = 200, GROW = 24, GBW = GRID_W / GRID_ROW, MAX_ROWS = 7;
   const GRID_DUR = 440;
   const gcellPool = [];
   const easeOutCubic = function (t) { return 1 - Math.pow(1 - t, 3); };
@@ -83,7 +83,7 @@
     const bAt = function (i) { return i === animIdx ? animBytes : layers[i].bytes; };
     let total = 0, off = 0, i;
     for (i = 0; i < layers.length; i++) total += bAt(i);
-    const H = Math.max(1, Math.ceil(total / GRID_ROW)) * GROW;
+    const H = Math.min(MAX_ROWS, Math.max(1, Math.ceil(total / GRID_ROW))) * GROW;   // cap at 7 rows
     const cells = [];
     for (i = 0; i < layers.length; i++) {
       let b = off; const e = off + bAt(i);

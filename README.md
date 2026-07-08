@@ -1,15 +1,14 @@
 # OSI Viz
 
-An interactive visualization that makes **encapsulation** intuitive: follow one
-request as it travels left → right — down the client's stack getting wrapped layer
-by layer, across the underlay at the bottom, then back up the server's stack getting
-unwrapped, until the bare payload reaches the application.
+An interactive visualization that makes **encapsulation** intuitive. It shows a
+single request as a stack of layers, **all at once**: the bright core is the real
+application data; wrapped around it are the HTTP, TLS, TCP, IP and VXLAN headers
+that exist only to deliver it.
 
-The data is a big **byte-grid blob**. The bright core is the real application data;
-each stop it passes wraps it in one more header — a new coloured block whose **area
-is proportional to that header's bytes**. Watch the core shrink to a sliver as
-delivery metadata piles on. That ratio — tiny signal, huge envelope — is the whole
-point.
+A proportion bar makes the whole point obvious at a glance — how little of what's
+on the wire is the thing you actually asked for. Watch a POST body of a few dozen
+bytes sit inside hundreds of bytes of envelope, or a GET that's *pure* envelope
+because it carries no body at all.
 
 > The long-form design rationale lives in [`CONCEPT.md`](./CONCEPT.md).
 
@@ -24,43 +23,47 @@ python3 -m http.server 8000   # then open http://localhost:8000
 
 ## How it works
 
-- **Scroll or swipe** to move the data along its track (a camera follows it;
-  layer nodes slide in from the right and out to the left). Arrow keys step
-  between nodes; the dots at the bottom jump to any layer.
-- **Each node's colour is the header it adds** — the node is the legend. No labels
-  on the blob itself; meaning is carried by colour and proportion.
-- **Tap the data** to open the inspector: a Wireshark-style nested dissection
-  of every header currently on the wire, plus the real `tcpdump` / `ss` line you'd
-  run to see it. The indentation *is* the encapsulation.
+- **Every layer is shown at once**, outermost header → data core, each with its
+  colour, its byte size and a one-line explanation of what it adds and why.
+- **Tap any layer** to expand it in place: its real header fields, a boxy
+  RFC-style diagram of the header format, and the actual `tcpdump` / `ss` / `curl`
+  line you'd run to see it. Colour is consistent everywhere — the layer's colour
+  in the stack, the bar and its expanded detail all match.
+- **Prev / Next** (or the ← → arrow keys) step through the story: the client
+  wrapping the request layer by layer, and the server unwrapping it. **Replay**
+  plays the wrapping as an animation. Nothing is gated behind a gesture.
+- **🎲 New request** generates a fresh POST, GET, PUT, PATCH, DELETE or CORS
+  preflight — bodies, ports and byte counts all update honestly.
 
 ## Layers
 
-Practical TCP/IP cloud view — no OSI L5/L6:
+Practical TCP/IP cloud view:
 
-| Block | Header | Bytes |
-|-------|--------|-------|
-| core | application data | the payload |
-| HTTP | request framing | 80 |
-| TLS  | encryption | 29 |
-| TCP  | transport (ports, seq) | 20 |
-| IP   | network (addresses, TTL) | 20 |
-| VXLAN | overlay tunnel | 50 |
+| Layer | Adds | Bytes |
+|-------|------|-------|
+| Data (L7) | the application payload | the body |
+| HTTP (L7) | method, path, headers | ~60–120 |
+| TLS (L6) | encryption | 29 |
+| TCP (L4) | transport (ports, seq) | 20 |
+| IP (L3) | network (addresses, TTL) | 20 |
+| VXLAN (L2) | overlay tunnel | 50 |
 
 ## Accessibility
 
 Colour-blind-safe palette (Okabe–Ito derived); meaning never rests on hue alone —
-nodes carry icons and labels, and the inspector spells out every field in text.
-Full keyboard control; `prefers-reduced-motion` is honoured.
+every layer carries a name, layer number and a plain-language caption, and each
+field is spelled out in text. Full keyboard control (arrows step, Home/End jump);
+`prefers-reduced-motion` is honoured. A tight Content-Security-Policy and the usual
+hardening headers ship in [`_headers`](./_headers).
 
 ## Files
 
 - `index.html` — structure
-- `styles.css` — theme, the blob, nodes, inspector
-- `data.js` — the ordered list of layer-nodes (colour, bytes, header fields, tool output)
-- `app.js` — the camera, the data blob, input, and the inspector
+- `styles.css` — theme, the stack, the proportion bar, the layer detail
+- `data.js` — the six-layer model + request generator (colour, bytes, captions, header fields, tool output)
+- `app.js` — the anatomy render, the step-through, and per-layer expansion
 
 ## Not yet built
 
 - The **response**: a second packet travelling back from the server to the client.
-  This build covers one full delivery — down the client stack, across the underlay,
-  and back up to the server application.
+  This build covers one full request, wrapped at the client and unwrapped at the server.

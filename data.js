@@ -90,39 +90,39 @@ window.OSI = (function () {
 
     const app = r.body
       ? { key: "app", color: "--c-app", bytes: bodyBytes,
-          decode: "body  " + r.body,
+          caption: "The request itself — the only bytes the app actually cares about.",
           fields: [r.body + "   (" + bodyBytes + " bytes — the application payload)"],
           tool: { cmd: "# what the app handed to the socket", out: r.body } }
       : { key: "app", color: "--c-app", bytes: 0,
-          decode: "body  (none)",
+          caption: "A " + r.method + " has no body — the request is just the method and path.",
           fields: [r.note || ("A " + r.method + " request has no body — 0 application bytes.")],
           tool: { cmd: "# a " + r.method + " has no request body", out: "(no body)" } };
 
     const http = { key: "http", color: "--c-http", bytes: httpBytes,
-      decode: "HTTP  " + r.method + " " + r.path,
+      caption: "The method, path and headers — what you're asking the server to do.",
       fields: r.headers.concat(r.body ? [] : ["(no body)"]),
       tool: r.tool };
 
     const tls = { key: "tls", color: "--c-tls", bytes: tlsBytes,
-      decode: "TLS 1.3  Application Data (encrypted)",
+      caption: "Encrypts everything above so nothing on the network can read it.",
       fields: ["TLSv1.3 · AES-128-GCM", "record: Application Data (23)", "wraps the HTTP request above"],
       tool: { cmd: "openssl s_client -connect " + HOST + ":443",
         out: "Cipher: TLS_AES_128_GCM_SHA256\nApplication Data (23), len " + (httpBytes + bodyBytes) + "   # ciphertext" } };
 
     const tcp = { key: "tcp", color: "--c-tcp", bytes: 20,
-      decode: "TCP  " + sport + " → 443  seq " + seq + "  [ACK,PSH]",
+      caption: "Ports and sequence numbers so the bytes arrive complete and in order.",
       fields: ["sport " + sport + " → dport 443", "seq " + seq, "flags [ACK,PSH]"],
       tool: { cmd: "ss -tiep dst 10.244.2.10",
         out: "ESTAB 10.244.1.5:" + sport + " 10.244.2.10:443\n  mss:1460 bytes_sent:" + l4payload } };
 
     const ip = { key: "ip", color: "--c-ip", bytes: 20,
-      decode: "IP  10.244.1.5 → 10.244.2.10  ttl 64",
+      caption: "Source and destination IP addresses so routers know where to send it.",
       fields: ["src 10.244.1.5 → dst 10.244.2.10", "ttl 64 · proto TCP(6)"],
       tool: { cmd: "ip route get 10.244.2.10",
         out: "10.244.2.10 via 10.244.1.1 dev eth0 src 10.244.1.5" } };
 
     const vxlan = { key: "vxlan", color: "--c-vxlan", bytes: 50,
-      decode: "VXLAN  192.168.1.10 → .11  udp 4789  vni 42",
+      caption: "Wraps the whole frame in an outer packet to cross the cluster's underlay.",
       fields: ["outer 192.168.1.10 → 192.168.1.11", "udp 4789 · vni 42 (L2 frame over the underlay)"],
       tool: { cmd: "tcpdump -ni eth0 'udp port 4789'",
         out: "IP 192.168.1.10 > 192.168.1.11: VXLAN vni 42\n  IP 10.244.1.5." + sport + " > 10.244.2.10.443: tcp " + l4payload } };

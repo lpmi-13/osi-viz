@@ -4,14 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
   <title>OSI Viz — how a request gets wrapped</title>
-  <meta name="description" content="Scroll a single request along its path and watch it get wrapped, layer by layer. The bright core is the real data; everything else is delivery metadata." />
+  <meta name="description" content="See every layer wrapping a single request at once — the bright core is the real data; everything else is delivery metadata. Step through how it gets wrapped and unwrapped." />
 
   <!-- social / Open Graph previews. Update the absolute URLs below if you
        deploy somewhere other than https://osi-viz.netlify.app. -->
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="OSI Viz" />
   <meta property="og:title" content="OSI Viz — how a request gets wrapped" />
-  <meta property="og:description" content="Scroll a single request along its path and watch it get wrapped, layer by layer. The bright core is the real data; everything else is delivery metadata." />
+  <meta property="og:description" content="See every layer wrapping a single request at once — the bright core is the real data; everything else is delivery metadata. Step through how it gets wrapped and unwrapped." />
   <meta property="og:url" content="https://osi-viz.netlify.app/" />
   <meta property="og:image" content="https://osi-viz.netlify.app/og-image.png" />
   <meta property="og:image:type" content="image/png" />
@@ -37,57 +37,44 @@
     </div>
   </header>
 
-  <main id="stage" tabindex="0" aria-label="Data encapsulation. Scroll or swipe to move the data along its path; press the arrow keys to step; tap the data to inspect its headers.">
+  <main id="stage" tabindex="0" aria-label="Encapsulation anatomy. Every layer wrapping the request is shown at once; use Prev and Next (or the arrow keys) to step through how it is wrapped and unwrapped, and tap a layer to see its real header fields.">
     <!-- the current request being visualised -->
     <div id="req-label" aria-live="polite"></div>
-    <!-- dashed, frosted bounding box that always encloses the data -->
-    <div id="blob-bound" aria-hidden="true"></div>
-    <!-- track curve + the data grid live in one full-bleed SVG -->
-    <svg id="scene" aria-hidden="true"><path id="track-path" /><g id="blob"></g></svg>
 
-    <!-- layer nodes (icons) float above the track -->
-    <div id="nodes"></div>
+    <!-- client → current step → server -->
+    <div id="journey">
+      <div class="ep" id="ep-client"><span class="ep-icon">🖥️</span><span class="ep-name">Client</span><span class="ep-sub">10.244.1.5</span></div>
+      <div id="phase"><span id="phase-tag"></span><span id="phase-node"></span></div>
+      <div class="ep" id="ep-server"><span class="ep-icon">🖥️</span><span class="ep-name">Server</span><span class="ep-sub">10.244.2.10</span></div>
+    </div>
 
-    <!-- transparent tap target over the blob -->
-    <div id="blob-hit" role="button" tabindex="0" aria-label="Inspect the data's headers"></div>
+    <!-- signal vs envelope, at a glance -->
+    <div id="proportion">
+      <div id="prop-bar" aria-hidden="true"></div>
+      <p id="prop-stat" aria-live="polite"></p>
+    </div>
 
-    <p id="hint" aria-hidden="true">scroll or swipe&nbsp;→&nbsp;to move · tap the data to inspect</p>
-
-    <div id="progress" aria-hidden="true"><div id="progress-dots"></div></div>
+    <!-- the layer stack, outermost header → data core; tap a row to expand it -->
+    <div id="stack"></div>
   </main>
 
-  <!-- data inspector (tap the data) — two swipeable pages -->
-  <div id="detail" class="overlay" hidden>
-    <div class="sheet-card" role="dialog" aria-modal="true" aria-label="Data inspector">
-      <button class="close" id="detail-close" aria-label="Close">✕</button>
-      <div class="pager-tabs" role="tablist" aria-label="Inspector pages">
-        <button class="pgtab" id="pgtab-0" role="tab" aria-selected="true">Routing</button>
-        <button class="pgtab" id="pgtab-1" role="tab" aria-selected="false">Headers &amp; metadata</button>
-      </div>
-      <div class="pager">
-        <div class="pager-track" id="pager-track">
-          <section class="page" role="tabpanel" aria-label="Routing">
-            <p class="detail-sub" id="detail-sub"></p>
-            <pre class="decode" id="detail-decode"></pre>
-            <div class="term"><div class="term-cmd" id="detail-cmd"></div><pre class="term-out" id="detail-out"></pre></div>
-          </section>
-          <section class="page" role="tabpanel" aria-label="Headers and metadata">
-            <div id="detail-headers" class="headers-detail"></div>
-          </section>
-        </div>
-      </div>
-      <p class="pager-hint" aria-hidden="true">tap the tabs to switch pages</p>
+  <footer id="controlbar">
+    <div id="controls">
+      <button class="step-btn" id="prev">◀&nbsp;Prev</button>
+      <button class="step-btn accent" id="replay">↺&nbsp;Replay</button>
+      <button class="step-btn" id="next">Next&nbsp;▶</button>
     </div>
-  </div>
+    <div id="progress" aria-hidden="true"><div id="progress-dots"></div></div>
+  </footer>
 
   <!-- one-time guide -->
   <div id="help" class="overlay" hidden>
     <div class="sheet-card" role="dialog" aria-modal="true" aria-label="How to read this">
       <button class="close" id="help-close" aria-label="Close">✕</button>
       <h2>One request, wrapped for delivery</h2>
-      <p>Follow a single request as it travels left&nbsp;→&nbsp;right. Each stop wraps it in one more header, so the data grows a new coloured block.</p>
-      <p>The <b>bright core is the request body</b> the app is sending. Watch it shrink to a sliver as delivery metadata piles on — that ratio is the whole idea. A <b>GET</b> or <b>OPTIONS</b> has no body at all, so the core is empty: every byte is envelope.</p>
-      <p class="muted">Scroll or swipe to move the data. Each node's colour is the header it adds. Tap the data to see its real headers, as <code>tcpdump</code> would show them. Hit <b>🎲 New request</b> to generate a fresh POST, GET, preflight and more.</p>
+      <p>Every request is a small piece of real data wrapped in layers of delivery metadata. Here you see <b>all the layers at once</b>: the bright core is your data; everything around it is envelope.</p>
+      <p>The bar shows the ratio — watch how little of what's on the wire is the thing you actually asked for. A <b>GET</b> or <b>OPTIONS</b> has no body at all, so it's pure envelope.</p>
+      <p class="muted"><b>Tap any layer</b> to see its real header fields, as <code>tcpdump</code> would show them. Use <b>Prev / Next</b> (or arrow keys) to watch the client wrap the request and the server unwrap it. Hit <b>🎲 New request</b> for a fresh POST, GET, preflight and more.</p>
       <button class="primary" id="help-start">Start</button>
     </div>
   </div>

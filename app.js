@@ -27,13 +27,18 @@
   const epClient = $("ep-client"), epServer = $("ep-server");
   const phaseTag = $("phase-tag"), phaseNode = $("phase-node");
   const propStat = $("prop-stat"), stackEl = $("stack");
-  const propGrid = $("prop-grid"), gridCells = $("grid-cells"), gridFrame = $("grid-frame");
+  const propGrid = $("prop-grid"), gridCells = $("grid-cells"), gridFrame = $("grid-frame"), gridClipRect = $("grid-clip-rect");
 
   // boxy byte-grid (like the favicon): 50 bytes/row, bottom-anchored, right → left,
   // growing up; area ∝ bytes. The box hugs its rows, so it grows as layers pile on.
   const SVGNS = "http://www.w3.org/2000/svg";
   const GRID_ROW = 50, GRID_W = 200, GROW = 24, GBW = GRID_W / GRID_ROW;
+  const GRID_DUR = 440;
   const gcellPool = [];
+  const easeOutCubic = function (t) { return 1 - Math.pow(1 - t, 3); };
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let gridN = presentAt(0).length;        // layer count of the last settled grid
+  let gridRaf = null;
 
   let step = 0;                           // start at the origin: the app's data, unwrapped
   let playTimer = null;
@@ -72,39 +77,60 @@
     row.querySelector(".lrow-head").addEventListener("click", function () { toggleRow(key); });
   });
 
-  // ---------- boxy byte-grid: fill present bytes into cells, bottom-anchored ----------
-  function renderGrid(present) {
-    let total = 0, off = 0;
-    present.forEach(function (l) { total += l.bytes; });
-    const rows = Math.max(1, Math.ceil(total / GRID_ROW));
-    const H = rows * GROW;
+  // ---------- boxy byte-grid: draw `layers` as cells, bottom-anchored. The layer
+  //            at `animIdx` uses `animBytes` (fractional) so it can grow/shrink. ----------
+  function drawGrid(layers, animIdx, animBytes) {
+    const bAt = function (i) { return i === animIdx ? animBytes : layers[i].bytes; };
+    let total = 0, off = 0, i;
+    for (i = 0; i < layers.length; i++) total += bAt(i);
+    const H = Math.max(1, Math.ceil(total / GRID_ROW)) * GROW;
     const cells = [];
-    present.forEach(function (l) {
-      let b = off; const e = off + l.bytes;
+    for (i = 0; i < layers.length; i++) {
+      let b = off; const e = off + bAt(i);
       while (b < e) {
         const row = Math.floor(b / GRID_ROW), p = b % GRID_ROW;
         const runEnd = Math.min(e, (row + 1) * GRID_ROW), run = runEnd - b;
-        cells.push({ x: GRID_W - (p + run) * GBW, y: H - (row + 1) * GROW, w: run * GBW, color: l.color });
+        cells.push({ x: GRID_W - (p + run) * GBW, y: H - (row + 1) * GROW, w: run * GBW, color: layers[i].color });
         b = runEnd;
       }
       off = e;
-    });
+    }
     propGrid.setAttribute("viewBox", "0 0 " + GRID_W + " " + H);   // box hugs its rows
-    gridFrame.setAttribute("y", "0.75");
-    gridFrame.setAttribute("height", (H - 1.5).toFixed(2));
+    const gh = (H - 1.5).toFixed(2);
+    gridFrame.setAttribute("height", gh);
+    gridClipRect.setAttribute("height", gh);                       // clip cells to the rounded box
     while (gcellPool.length < cells.length) {
       const r = document.createElementNS(SVGNS, "rect");
       r.setAttribute("stroke", "rgba(6,10,22,.85)"); r.setAttribute("stroke-width", "0.8");
       gridCells.appendChild(r); gcellPool.push(r);
     }
-    gcellPool.forEach(function (r, i) {
-      if (i >= cells.length) { r.style.display = "none"; return; }
-      const c = cells[i];
+    gcellPool.forEach(function (r, k) {
+      if (k >= cells.length) { r.style.display = "none"; return; }
+      const c = cells[k];
       r.setAttribute("x", c.x.toFixed(2)); r.setAttribute("y", c.y.toFixed(2));
-      r.setAttribute("width", c.w.toFixed(2)); r.setAttribute("height", GROW.toFixed(2));
+      r.setAttribute("width", Math.max(0, c.w).toFixed(2)); r.setAttribute("height", GROW.toFixed(2));
       r.setAttribute("fill", "var(" + c.color + ")");
       r.style.display = "";
     });
+  }
+
+  // Animate the box when a single layer is added/removed; snap on jumps or reduced motion.
+  function updateGrid(present) {
+    const n = present.length;
+    if (gridRaf) { cancelAnimationFrame(gridRaf); gridRaf = null; }
+    if (reduceMotion || Math.abs(n - gridN) !== 1) { gridN = n; drawGrid(present, -1, 0); return; }
+    const dir = n > gridN ? "in" : "out";
+    const layers = dir === "in" ? ORDER.slice(0, n) : ORDER.slice(0, n + 1);   // include the leaving layer
+    const idx = dir === "in" ? n - 1 : n;
+    const full = layers[idx].bytes;
+    gridN = n;
+    const t0 = performance.now();
+    (function frame(now) {
+      const e = easeOutCubic(Math.min(1, (now - t0) / GRID_DUR));
+      drawGrid(layers, idx, full * (dir === "in" ? e : 1 - e));
+      if (e < 1) gridRaf = requestAnimationFrame(frame);
+      else { gridRaf = null; drawGrid(present, -1, 0); }
+    })(t0);
   }
 
   // the journey rail's stops (client → down the stack → underlay → up → server)
@@ -173,8 +199,8 @@
     phaseTag.style.background = "var(" + outer.color + ")";
     phaseNode.innerHTML = node.icon + " <b>" + esc(node.name) + '</b> <span class="ps">' + esc(node.sub) + "</span>";
 
-    // boxy byte-grid
-    renderGrid(present);
+    // boxy byte-grid (animates when a single layer is added/removed)
+    updateGrid(present);
 
     // ratio readout
     const pct = total > 0 ? Math.round(dataBytes / total * 100) : 0;

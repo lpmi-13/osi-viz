@@ -72,7 +72,8 @@
     <!-- signal vs envelope, as a boxy byte-grid (like the favicon) -->
     <div id="proportion">
       <svg id="prop-grid" viewBox="0 0 200 132" preserveAspectRatio="xMidYMax meet" aria-hidden="true">
-        <g id="grid-cells"></g>
+        <defs><clipPath id="grid-clip"><rect id="grid-clip-rect" x="0.75" y="0.75" width="198.5" height="130.5" rx="7" /></clipPath></defs>
+        <g id="grid-cells" clip-path="url(#grid-clip)"></g>
         <rect id="grid-frame" x="0.75" y="0.75" width="198.5" height="130.5" rx="7" fill="none" />
       </svg>
       <p id="prop-stat" aria-live="polite"></p>

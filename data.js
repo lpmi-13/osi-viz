@@ -24,6 +24,8 @@ window.OSI = (function () {
   const HOST = "api-service";
   const NAMES = ["ada", "grace", "lin", "kofi", "mira", "sam", "yuki", "noor"];
   const ROLES = ["engineer", "admin", "analyst", "viewer", "operator"];
+  const TEAMS = ["platform", "payments", "growth", "infra", "data"];
+  const CITIES = ["berlin", "lagos", "quito", "osaka", "austin", "oslo"];
 
   // ---- L7 request catalogue --------------------------------------------
   // Each returns { method, path, body|null, headers[], note?, tool:{cmd,out} }.
@@ -54,17 +56,37 @@ window.OSI = (function () {
       tool: { cmd: "curl -X OPTIONS https://" + HOST + path + " \\\n    -H 'Origin: https://app.example.com' \\\n    -H 'Access-Control-Request-Method: POST'",
         out: "<\n< HTTP/2 204 No Content\n< access-control-allow-origin: https://app.example.com\n< access-control-allow-methods: GET, POST, PUT, DELETE" } };
   }
+  // small bodies
   function post() {
     const body = JSON.stringify({ name: pick(NAMES), role: pick(ROLES) });
     return withBody("POST", "/api/users", body, "201 Created");
   }
-  function put() {
-    const body = JSON.stringify({ role: pick(ROLES) });
-    return withBody("PUT", "/api/users/" + rint(1000, 99999), body, "200 OK");
-  }
   function patch() {
     const body = JSON.stringify({ status: pick(["active", "suspended", "invited"]) });
     return withBody("PATCH", "/api/users/" + rint(1000, 99999), body, "200 OK");
+  }
+  // medium body — a fuller record
+  function postProfile() {
+    const body = JSON.stringify({
+      name: pick(NAMES), email: pick(NAMES) + "@example.com",
+      role: pick(ROLES), team: pick(TEAMS), city: pick(CITIES), active: true });
+    return withBody("POST", "/api/users", body, "201 Created");
+  }
+  // larger body — a deployment spec with nested objects
+  function putConfig() {
+    const body = JSON.stringify({
+      replicas: rint(2, 9), image: "api-service:" + rint(1, 40) + ".2",
+      env: pick(["prod", "staging", "dev"]), team: pick(TEAMS),
+      resources: { requests: { cpu: rint(1, 4) + "00m", memory: rint(1, 4) + "Gi" },
+        limits: { cpu: rint(1, 2) + "000m", memory: rint(4, 8) + "Gi" } } });
+    return withBody("PUT", "/api/deployments/" + pick(TEAMS) + "-api", body, "200 OK");
+  }
+  // large body — a batch create (array of records)
+  function postBatch() {
+    const users = [];
+    for (let i = rint(3, 5); i > 0; i--) users.push({ name: pick(NAMES), role: pick(ROLES), team: pick(TEAMS) });
+    const body = JSON.stringify({ users: users });
+    return withBody("POST", "/api/users:batchCreate", body, "201 Created");
   }
   function withBody(method, path, body, status) {
     return {
@@ -75,7 +97,8 @@ window.OSI = (function () {
         out: "> " + method + " " + path + " HTTP/2\n> content-length: " + byteLen(body) + "\n" + body + "\n<\n< HTTP/2 " + status } };
   }
 
-  const CATALOG = [get, post, put, patch, del, options];
+  // GET/DELETE/OPTIONS carry no body; the rest span small → large payloads.
+  const CATALOG = [get, del, options, post, patch, postProfile, putConfig, postBatch, postBatch, putConfig];
 
   // ---- wrap an L7 request in the fixed lower-layer headers --------------
   // TLS/TCP/IP/VXLAN header sizes are real and fixed; only the app (body) and

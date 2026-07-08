@@ -103,8 +103,9 @@ body { display: flex; flex-direction: column; }
 .ep-sub { font-size: 9.5px; color: var(--muted-2); font-family: ui-monospace, monospace; }
 
 #rail { width: 100%; height: auto; overflow: visible; }
-#rail-path { fill: none; stroke: var(--line); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.rail-vertex { fill: var(--muted-2); }
+.rail-arm { fill: none; stroke: var(--line); stroke-width: 2; stroke-linecap: round; }
+/* the underlay is a line, not a point — it bridges the two hosts' stacks */
+#rail-underlay { stroke: var(--muted-2); stroke-width: 3; stroke-linecap: round; }
 #rail-wire { fill: var(--muted-2); font-size: 9px; font-family: ui-monospace, monospace; letter-spacing: .04em; }
 .rdot { fill: var(--line); stroke: var(--bg); stroke-width: 1.5; cursor: pointer; transition: fill 200ms, r 160ms; }
 .rdot.done { fill: var(--muted-2); }
@@ -119,12 +120,10 @@ body { display: flex; flex-direction: column; }
 #phase-node b { color: var(--text); }
 #phase-node .ps { color: var(--muted-2); font-family: ui-monospace, monospace; font-size: 11px; }
 
-/* ---------- proportion bar (signal vs envelope) ---------- */
-#proportion { display: flex; flex-direction: column; gap: 7px; }
-#prop-bar { display: flex; height: 30px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); background: #0b1226; }
-.seg { flex: none; width: 0; background: var(--c); border-right: 1px solid rgba(6,10,22,.55); transition: width 440ms cubic-bezier(.32,.72,0,1); }
-.seg:last-child { border-right: 0; }
-.seg.core { box-shadow: inset 0 0 12px rgba(255,255,255,.5); }
+/* ---------- proportion: a boxy byte-grid (signal vs envelope) ---------- */
+#proportion { display: flex; flex-direction: column; gap: 8px; }
+#prop-grid { display: block; width: 100%; max-width: 232px; height: auto; margin: 0 auto; }
+#grid-frame { stroke: var(--line); stroke-width: 1.5; }
 #prop-stat { margin: 0; text-align: center; font-size: 12.5px; color: var(--muted); line-height: 1.4; }
 #prop-stat b { color: var(--text); font-family: ui-monospace, monospace; }
 

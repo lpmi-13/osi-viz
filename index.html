@@ -46,31 +46,35 @@
     <div id="journey">
       <div class="ep" id="ep-client"><span class="ep-icon">🖥️</span><span class="ep-name">Client</span><span class="ep-sub">pod</span></div>
       <svg id="rail" viewBox="0 0 300 68" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-        <polyline id="rail-path" points="8,10 150,46 292,10" />
-        <circle class="rail-vertex" cx="150" cy="46" r="3.5" />
-        <text id="rail-wire" x="150" y="63" text-anchor="middle">underlay</text>
+        <polyline class="rail-arm" points="10,12 122,46" />
+        <polyline class="rail-arm" points="178,46 290,12" />
+        <line id="rail-underlay" x1="122" y1="46" x2="178" y2="46" />
+        <text id="rail-wire" x="150" y="62" text-anchor="middle">underlay</text>
         <g id="rail-dots">
-          <circle class="rdot" data-step="0" cx="19.8" cy="13" r="4.5" />
-          <circle class="rdot" data-step="1" cx="43.5" cy="19" r="4.5" />
-          <circle class="rdot" data-step="2" cx="67.2" cy="25" r="4.5" />
-          <circle class="rdot" data-step="3" cx="90.8" cy="31" r="4.5" />
-          <circle class="rdot" data-step="4" cx="114.5" cy="37" r="4.5" />
-          <circle class="rdot" data-step="5" cx="138.2" cy="43" r="4.5" />
-          <circle class="rdot" data-step="6" cx="161.8" cy="43" r="4.5" />
-          <circle class="rdot" data-step="7" cx="185.5" cy="37" r="4.5" />
-          <circle class="rdot" data-step="8" cx="209.2" cy="31" r="4.5" />
-          <circle class="rdot" data-step="9" cx="232.8" cy="25" r="4.5" />
-          <circle class="rdot" data-step="10" cx="256.5" cy="19" r="4.5" />
-          <circle class="rdot" data-step="11" cx="280.2" cy="13" r="4.5" />
+          <circle class="rdot" data-step="0" cx="10" cy="12" r="4.5" />
+          <circle class="rdot" data-step="1" cx="32.4" cy="18.8" r="4.5" />
+          <circle class="rdot" data-step="2" cx="54.8" cy="25.6" r="4.5" />
+          <circle class="rdot" data-step="3" cx="77.2" cy="32.4" r="4.5" />
+          <circle class="rdot" data-step="4" cx="99.6" cy="39.2" r="4.5" />
+          <circle class="rdot" data-step="5" cx="122" cy="46" r="4.5" />
+          <circle class="rdot" data-step="6" cx="178" cy="46" r="4.5" />
+          <circle class="rdot" data-step="7" cx="200.4" cy="39.2" r="4.5" />
+          <circle class="rdot" data-step="8" cx="222.8" cy="32.4" r="4.5" />
+          <circle class="rdot" data-step="9" cx="245.2" cy="25.6" r="4.5" />
+          <circle class="rdot" data-step="10" cx="267.6" cy="18.8" r="4.5" />
+          <circle class="rdot" data-step="11" cx="290" cy="12" r="4.5" />
         </g>
       </svg>
       <div class="ep" id="ep-server"><span class="ep-icon">🖥️</span><span class="ep-name">Server</span><span class="ep-sub">pod</span></div>
     </div>
     <div id="phase"><span id="phase-tag"></span><span id="phase-node"></span></div>
 
-    <!-- signal vs envelope, at a glance -->
+    <!-- signal vs envelope, as a boxy byte-grid (like the favicon) -->
     <div id="proportion">
-      <div id="prop-bar" aria-hidden="true"></div>
+      <svg id="prop-grid" viewBox="0 0 200 132" preserveAspectRatio="xMidYMax meet" aria-hidden="true">
+        <g id="grid-cells"></g>
+        <rect id="grid-frame" x="0.75" y="0.75" width="198.5" height="130.5" rx="7" fill="none" />
+      </svg>
       <p id="prop-stat" aria-live="polite"></p>
     </div>
 

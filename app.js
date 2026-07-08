@@ -26,7 +26,14 @@
   const stage = $("stage"), reqLabel = $("req-label");
   const epClient = $("ep-client"), epServer = $("ep-server");
   const phaseTag = $("phase-tag"), phaseNode = $("phase-node");
-  const propBar = $("prop-bar"), propStat = $("prop-stat"), stackEl = $("stack");
+  const propStat = $("prop-stat"), stackEl = $("stack");
+  const propGrid = $("prop-grid"), gridCells = $("grid-cells"), gridFrame = $("grid-frame");
+
+  // boxy byte-grid (like the favicon): 50 bytes/row, bottom-anchored, right → left,
+  // growing up; area ∝ bytes. The box hugs its rows, so it grows as layers pile on.
+  const SVGNS = "http://www.w3.org/2000/svg";
+  const GRID_ROW = 50, GRID_W = 200, GROW = 24, GBW = GRID_W / GRID_ROW;
+  const gcellPool = [];
 
   let step = 0;                           // start at the origin: the app's data, unwrapped
   let playTimer = null;
@@ -45,7 +52,7 @@
   // ---------- build the fixed scaffolding once (one row + one bar segment
   //            per layer, outermost → core). Content is refreshed per request. ----------
   const KEYS = ORDER.map(function (l) { return l.key; }).reverse();   // [vxlan,ip,tcp,tls,http,app]
-  const rowEls = {}, segEls = {};
+  const rowEls = {};
 
   KEYS.forEach(function (key) {
     const row = document.createElement("div");
@@ -63,12 +70,42 @@
     stackEl.appendChild(row);
     rowEls[key] = row;
     row.querySelector(".lrow-head").addEventListener("click", function () { toggleRow(key); });
-
-    const seg = document.createElement("div");
-    seg.className = "seg" + (key === "app" ? " core" : "");
-    propBar.appendChild(seg);
-    segEls[key] = seg;
   });
+
+  // ---------- boxy byte-grid: fill present bytes into cells, bottom-anchored ----------
+  function renderGrid(present) {
+    let total = 0, off = 0;
+    present.forEach(function (l) { total += l.bytes; });
+    const rows = Math.max(1, Math.ceil(total / GRID_ROW));
+    const H = rows * GROW;
+    const cells = [];
+    present.forEach(function (l) {
+      let b = off; const e = off + l.bytes;
+      while (b < e) {
+        const row = Math.floor(b / GRID_ROW), p = b % GRID_ROW;
+        const runEnd = Math.min(e, (row + 1) * GRID_ROW), run = runEnd - b;
+        cells.push({ x: GRID_W - (p + run) * GBW, y: H - (row + 1) * GROW, w: run * GBW, color: l.color });
+        b = runEnd;
+      }
+      off = e;
+    });
+    propGrid.setAttribute("viewBox", "0 0 " + GRID_W + " " + H);   // box hugs its rows
+    gridFrame.setAttribute("y", "0.75");
+    gridFrame.setAttribute("height", (H - 1.5).toFixed(2));
+    while (gcellPool.length < cells.length) {
+      const r = document.createElementNS(SVGNS, "rect");
+      r.setAttribute("stroke", "rgba(6,10,22,.85)"); r.setAttribute("stroke-width", "0.8");
+      gridCells.appendChild(r); gcellPool.push(r);
+    }
+    gcellPool.forEach(function (r, i) {
+      if (i >= cells.length) { r.style.display = "none"; return; }
+      const c = cells[i];
+      r.setAttribute("x", c.x.toFixed(2)); r.setAttribute("y", c.y.toFixed(2));
+      r.setAttribute("width", c.w.toFixed(2)); r.setAttribute("height", GROW.toFixed(2));
+      r.setAttribute("fill", "var(" + c.color + ")");
+      r.style.display = "";
+    });
+  }
 
   // the journey rail's stops (client → down the stack → underlay → up → server)
   const railDots = Array.prototype.slice.call(document.querySelectorAll(".rdot"));
@@ -109,13 +146,13 @@
     KEYS.forEach(function (key) {
       const l = layerByKey(key), row = rowEls[key];
       row.style.setProperty("--c", "var(" + l.color + ")");
+      // the data core isn't one of the OSI layers, so it gets no L-number badge
       row.querySelector(".lrow-name").innerHTML =
-        (key === "app" ? "Data" : esc(LNAME[key])) + ' <b class="lnum">' + LAYERNUM[key] + "</b>" +
+        (key === "app" ? "Data" : esc(LNAME[key]) + ' <b class="lnum">' + LAYERNUM[key] + "</b>") +
         (l.tag ? '<span class="lrow-tag">' + esc(l.tag) + "</span>" : "");
       row.querySelector(".lrow-cap").textContent = l.caption;
       row.querySelector(".lrow-bytes").textContent = l.bytes + " B";
       row.querySelector(".lrow-detail-in").innerHTML = layerDetail(l);
-      segEls[key].style.setProperty("--c", "var(" + l.color + ")");
       setRowOpen(key, false);
     });
   }
@@ -136,12 +173,8 @@
     phaseTag.style.background = "var(" + outer.color + ")";
     phaseNode.innerHTML = node.icon + " <b>" + esc(node.name) + '</b> <span class="ps">' + esc(node.sub) + "</span>";
 
-    // proportion bar
-    KEYS.forEach(function (key) {
-      const l = layerByKey(key);
-      const w = here[key] && total > 0 ? (l.bytes / total * 100) : 0;
-      segEls[key].style.width = w.toFixed(2) + "%";
-    });
+    // boxy byte-grid
+    renderGrid(present);
 
     // ratio readout
     const pct = total > 0 ? Math.round(dataBytes / total * 100) : 0;
@@ -201,7 +234,7 @@
     stopPlay();
     REQ = req; ORDER = req.ORDER;
     updateReqLabel(); applyRequest();
-    step = 0; render();
+    render();               // keep the reader's position on the path
   }
   $("new-req").addEventListener("click", function () { setRequest(D.randomRequest()); });
 

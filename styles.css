@@ -88,13 +88,28 @@ body { display: flex; flex-direction: column; }
   100% { transform: scale(1); }
 }
 
-/* ---------- journey strip: client → step → server ---------- */
-#journey { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; }
-.ep { display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 58px; opacity: .45; transition: opacity 220ms; }
+/* ---------- scenario chip ---------- */
+#scenario {
+  align-self: center; font-size: 11.5px; color: var(--muted); text-align: center;
+  margin-top: -6px;
+}
+
+/* ---------- journey rail: client → down the stack → underlay → up → server ---------- */
+#journey { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 6px; }
+.ep { display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 52px; opacity: .45; transition: opacity 220ms; }
 .ep.active { opacity: 1; }
 .ep-icon { font-size: 22px; line-height: 1; }
 .ep-name { font-weight: 700; font-size: 12px; }
 .ep-sub { font-size: 9.5px; color: var(--muted-2); font-family: ui-monospace, monospace; }
+
+#rail { width: 100%; height: auto; overflow: visible; }
+#rail-path { fill: none; stroke: var(--line); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.rail-vertex { fill: var(--muted-2); }
+#rail-wire { fill: var(--muted-2); font-size: 9px; font-family: ui-monospace, monospace; letter-spacing: .04em; }
+.rdot { fill: var(--line); stroke: var(--bg); stroke-width: 1.5; cursor: pointer; transition: fill 200ms, r 160ms; }
+.rdot.done { fill: var(--muted-2); }
+.rdot.current { stroke: var(--text); stroke-width: 2; }   /* fill set inline to the current layer's colour */
+
 #phase { display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center; min-width: 0; }
 #phase-tag {
   font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em;
@@ -133,6 +148,7 @@ body { display: flex; flex-direction: column; }
 .lrow-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .lrow-name { font-weight: 700; font-size: 14px; }
 .lnum { font-family: ui-monospace, monospace; font-size: 10px; font-weight: 800; color: #04122e; background: var(--c); padding: 0 5px; border-radius: 6px; margin-left: 4px; }
+.lrow-tag { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--c); border: 1px solid var(--c); border-radius: 6px; padding: 0 5px; margin-left: 6px; vertical-align: 1px; }
 .lrow-cap { font-size: 11.5px; color: var(--muted); line-height: 1.3; }
 .lrow-bytes { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .lrow-chev { color: var(--muted-2); font-size: 12px; transition: transform 220ms; }
@@ -190,13 +206,6 @@ body { display: flex; flex-direction: column; }
 .step-btn:disabled { opacity: .4; cursor: default; }
 .step-btn.accent { background: var(--accent); color: #04122e; border-color: var(--accent); }
 .step-btn.accent.playing { opacity: .7; }
-
-/* progress dots */
-#progress { display: grid; place-items: center; margin-top: 10px; }
-#progress-dots { display: flex; gap: 8px; }
-.pdot { width: 8px; height: 8px; border-radius: 50%; border: 0; padding: 0; cursor: pointer; background: var(--line); transition: transform 200ms, background 200ms; }
-.pdot.done { background: var(--muted-2); }
-.pdot.current { background: var(--accent); transform: scale(1.6); }
 
 /* ---------- overlay guide ---------- */
 .overlay { position: fixed; inset: 0; z-index: 40; background: rgba(4,8,18,.72); display: flex; align-items: flex-end; justify-content: center; padding: 0; overflow-y: auto; }

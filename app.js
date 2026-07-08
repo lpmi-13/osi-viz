@@ -15,7 +15,6 @@
   let REQ = D.defaultRequest();
   let ORDER = REQ.ORDER;                  // six layers, inner → outer
   const MAXSTEP = NODES.length - 1;       // 11
-  const FULL = ORDER.length - 1;          // 5 — fully wrapped (the default landing)
 
   // layer → OSI-ish number (app & HTTP both L7; TLS L6; TCP L4; IP L3; VXLAN L2)
   const LAYERNUM = { app: "L7", http: "L7", tls: "L6", tcp: "L4", ip: "L3", vxlan: "L2" };
@@ -29,7 +28,7 @@
   const phaseTag = $("phase-tag"), phaseNode = $("phase-node");
   const propBar = $("prop-bar"), propStat = $("prop-stat"), stackEl = $("stack");
 
-  let step = FULL;
+  let step = 0;                           // start at the origin: the app's data, unwrapped
   let playTimer = null;
 
   function presentAt(s) { return ORDER.slice(0, NODES[s].n); }        // inner → outer
@@ -71,13 +70,10 @@
     segEls[key] = seg;
   });
 
-  const dots = NODES.map(function (n, i) {
-    const b = document.createElement("button");
-    b.className = "pdot";
-    b.setAttribute("aria-label", "Step " + (i + 1) + " of " + (MAXSTEP + 1) + ": " + n.name);
-    b.addEventListener("click", function () { goTo(i); });
-    $("progress-dots").appendChild(b);
-    return b;
+  // the journey rail's stops (client → down the stack → underlay → up → server)
+  const railDots = Array.prototype.slice.call(document.querySelectorAll(".rdot"));
+  railDots.forEach(function (dot) {
+    dot.addEventListener("click", function () { goTo(parseInt(dot.dataset.step, 10)); });
   });
 
   // ---------- per-request content (bytes, captions, colours, detail) ----------
@@ -114,7 +110,8 @@
       const l = layerByKey(key), row = rowEls[key];
       row.style.setProperty("--c", "var(" + l.color + ")");
       row.querySelector(".lrow-name").innerHTML =
-        (key === "app" ? "Data" : esc(LNAME[key])) + ' <b class="lnum">' + LAYERNUM[key] + "</b>";
+        (key === "app" ? "Data" : esc(LNAME[key])) + ' <b class="lnum">' + LAYERNUM[key] + "</b>" +
+        (l.tag ? '<span class="lrow-tag">' + esc(l.tag) + "</span>" : "");
       row.querySelector(".lrow-cap").textContent = l.caption;
       row.querySelector(".lrow-bytes").textContent = l.bytes + " B";
       row.querySelector(".lrow-detail-in").innerHTML = layerDetail(l);
@@ -152,9 +149,18 @@
     else if (dataBytes === 0) propStat.innerHTML = "<b>0 B</b> of <b>" + total + " B</b> is your data — this request is pure envelope.";
     else propStat.innerHTML = "<b>" + dataBytes + " B</b> of <b>" + total + " B</b> on the wire is your data — just <b>" + pct + "%</b>.";
 
-    // stack + dots
+    // stack rows
     KEYS.forEach(function (key) { rowEls[key].classList.toggle("present", !!here[key]); });
-    dots.forEach(function (dot, i) { dot.classList.toggle("done", i <= step); dot.classList.toggle("current", i === step); });
+
+    // journey rail: current stop coloured by the current layer, earlier stops done
+    railDots.forEach(function (dot, i) {
+      const cur = i === step;
+      dot.classList.toggle("current", cur);
+      dot.classList.toggle("done", i < step);
+      dot.setAttribute("r", cur ? "6.5" : "4.5");
+      dot.style.fill = cur ? "var(" + outer.color + ")" : "";
+    });
+
     $("prev").disabled = step === 0;
     $("next").disabled = step === MAXSTEP;
   }
@@ -170,12 +176,12 @@
   function goTo(s) { stopPlay(); step = clamp(s, 0, MAXSTEP); render(); }
   function stepBy(d) { goTo(step + d); }
   function stopPlay() { if (playTimer) { clearInterval(playTimer); playTimer = null; $("replay").classList.remove("playing"); } }
-  function replay() {
+  function replay() {                       // walk the whole path: wrap, wire, unwrap
     stopPlay();
     step = 0; render();
     $("replay").classList.add("playing");
     playTimer = setInterval(function () {
-      if (step >= FULL) { stopPlay(); return; }
+      if (step >= MAXSTEP) { stopPlay(); return; }
       step += 1; render();
     }, 850);
   }
@@ -195,7 +201,7 @@
     stopPlay();
     REQ = req; ORDER = req.ORDER;
     updateReqLabel(); applyRequest();
-    step = FULL; render();
+    step = 0; render();
   }
   $("new-req").addEventListener("click", function () { setRequest(D.randomRequest()); });
 

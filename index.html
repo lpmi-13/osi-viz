@@ -37,16 +37,36 @@
     </div>
   </header>
 
-  <main id="stage" tabindex="0" aria-label="Encapsulation anatomy. Every layer wrapping the request is shown at once; use Prev and Next (or the arrow keys) to step through how it is wrapped and unwrapped, and tap a layer to see its real header fields.">
+  <main id="stage" tabindex="0" aria-label="Encapsulation anatomy for a pod-to-pod request in a Kubernetes cluster. Use Prev and Next (or the arrow keys) to step through how the client wraps the request and the server unwraps it, and tap a layer to see its real header fields.">
     <!-- the current request being visualised -->
     <div id="req-label" aria-live="polite"></div>
+    <div id="scenario">☸&nbsp; pod → pod inside a Kubernetes cluster</div>
 
-    <!-- client → current step → server -->
+    <!-- the request's path: client → down the stack → underlay → up the stack → server -->
     <div id="journey">
-      <div class="ep" id="ep-client"><span class="ep-icon">🖥️</span><span class="ep-name">Client</span><span class="ep-sub">10.244.1.5</span></div>
-      <div id="phase"><span id="phase-tag"></span><span id="phase-node"></span></div>
-      <div class="ep" id="ep-server"><span class="ep-icon">🖥️</span><span class="ep-name">Server</span><span class="ep-sub">10.244.2.10</span></div>
+      <div class="ep" id="ep-client"><span class="ep-icon">🖥️</span><span class="ep-name">Client</span><span class="ep-sub">pod</span></div>
+      <svg id="rail" viewBox="0 0 300 68" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        <polyline id="rail-path" points="8,10 150,46 292,10" />
+        <circle class="rail-vertex" cx="150" cy="46" r="3.5" />
+        <text id="rail-wire" x="150" y="63" text-anchor="middle">underlay</text>
+        <g id="rail-dots">
+          <circle class="rdot" data-step="0" cx="19.8" cy="13" r="4.5" />
+          <circle class="rdot" data-step="1" cx="43.5" cy="19" r="4.5" />
+          <circle class="rdot" data-step="2" cx="67.2" cy="25" r="4.5" />
+          <circle class="rdot" data-step="3" cx="90.8" cy="31" r="4.5" />
+          <circle class="rdot" data-step="4" cx="114.5" cy="37" r="4.5" />
+          <circle class="rdot" data-step="5" cx="138.2" cy="43" r="4.5" />
+          <circle class="rdot" data-step="6" cx="161.8" cy="43" r="4.5" />
+          <circle class="rdot" data-step="7" cx="185.5" cy="37" r="4.5" />
+          <circle class="rdot" data-step="8" cx="209.2" cy="31" r="4.5" />
+          <circle class="rdot" data-step="9" cx="232.8" cy="25" r="4.5" />
+          <circle class="rdot" data-step="10" cx="256.5" cy="19" r="4.5" />
+          <circle class="rdot" data-step="11" cx="280.2" cy="13" r="4.5" />
+        </g>
+      </svg>
+      <div class="ep" id="ep-server"><span class="ep-icon">🖥️</span><span class="ep-name">Server</span><span class="ep-sub">pod</span></div>
     </div>
+    <div id="phase"><span id="phase-tag"></span><span id="phase-node"></span></div>
 
     <!-- signal vs envelope, at a glance -->
     <div id="proportion">
@@ -64,7 +84,6 @@
       <button class="step-btn accent" id="replay">↺&nbsp;Replay</button>
       <button class="step-btn" id="next">Next&nbsp;▶</button>
     </div>
-    <div id="progress" aria-hidden="true"><div id="progress-dots"></div></div>
   </footer>
 
   <!-- one-time guide -->
@@ -72,9 +91,9 @@
     <div class="sheet-card" role="dialog" aria-modal="true" aria-label="How to read this">
       <button class="close" id="help-close" aria-label="Close">✕</button>
       <h2>One request, wrapped for delivery</h2>
-      <p>Every request is a small piece of real data wrapped in layers of delivery metadata. Here you see <b>all the layers at once</b>: the bright core is your data; everything around it is envelope.</p>
-      <p>The bar shows the ratio — watch how little of what's on the wire is the thing you actually asked for. A <b>GET</b> or <b>OPTIONS</b> has no body at all, so it's pure envelope.</p>
-      <p class="muted"><b>Tap any layer</b> to see its real header fields, as <code>tcpdump</code> would show them. Use <b>Prev / Next</b> (or arrow keys) to watch the client wrap the request and the server unwrap it. Hit <b>🎲 New request</b> for a fresh POST, GET, preflight and more.</p>
+      <p>You start with just the <b>real data</b> at the client — one pod calling another inside a Kubernetes cluster. Step forward with <b>Next</b> (or the arrow keys) and watch each layer wrap around it, down the client's stack, across the underlay, and back up the server's stack.</p>
+      <p>The bar shows the ratio — how little of what's finally on the wire is the thing you actually asked for. A <b>GET</b> or <b>OPTIONS</b> has no body at all, so it's pure envelope.</p>
+      <p class="muted"><b>Tap any layer</b> to see its real header fields, as <code>tcpdump</code> would show them. The rail up top tracks where you are on the path. Hit <b>🎲 New request</b> for a fresh POST, GET, preflight and more.</p>
       <button class="primary" id="help-start">Start</button>
     </div>
   </div>

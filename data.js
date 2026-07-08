@@ -121,9 +121,9 @@ window.OSI = (function () {
       tool: { cmd: "ip route get 10.244.2.10",
         out: "10.244.2.10 via 10.244.1.1 dev eth0 src 10.244.1.5" } };
 
-    const vxlan = { key: "vxlan", color: "--c-vxlan", bytes: 50,
-      caption: "Wraps the whole frame in an outer packet to cross the cluster's underlay.",
-      fields: ["outer 192.168.1.10 → 192.168.1.11", "udp 4789 · vni 42 (L2 frame over the underlay)"],
+    const vxlan = { key: "vxlan", color: "--c-vxlan", bytes: 50, tag: "overlay only",
+      caption: "Overlay networks only (Kubernetes, Tailscale…): the CNI wraps the whole frame in an outer packet so it can cross the physical underlay. Plain host-to-host traffic has no VXLAN.",
+      fields: ["outer 192.168.1.10 → 192.168.1.11", "udp 4789 · vni 42 (inner L2 frame over the underlay)", "added by the pod's CNI (Calico / Cilium / Flannel …)"],
       tool: { cmd: "tcpdump -ni eth0 'udp port 4789'",
         out: "IP 192.168.1.10 > 192.168.1.11: VXLAN vni 42\n  IP 10.244.1.5." + sport + " > 10.244.2.10.443: tcp " + l4payload } };
 
@@ -147,7 +147,7 @@ window.OSI = (function () {
   // `layer` = the OSI-ish number of the node's outermost layer (app & HTTP
   // both live at L7; TLS at L6; TCP L4; IP L3; the VXLAN overlay frame at L2).
   const nodes = [
-    { name: "Client",  sub: "frontend · 10.244.1.5",     icon: "🖥️", n: 1, layer: "L7" },
+    { name: "Client",  sub: "frontend pod · 10.244.1.5",  icon: "🖥️", n: 1, layer: "L7" },
     { name: "HTTP",    sub: "request framing",            icon: "🌐", n: 2, layer: "L7" },
     { name: "TLS",     sub: "encryption",                 icon: "🔒", n: 3, layer: "L6" },
     { name: "TCP",     sub: "transport",                  icon: "🔌", n: 4, layer: "L4" },
@@ -158,7 +158,7 @@ window.OSI = (function () {
     { name: "TCP",     sub: "socket",                     icon: "🔌", n: 4, layer: "L4" },
     { name: "TLS",     sub: "decrypt",                    icon: "🔒", n: 3, layer: "L6" },
     { name: "HTTP",    sub: "parse",                      icon: "🌐", n: 2, layer: "L7" },
-    { name: "Server",  sub: "api-service · 10.244.2.10",  icon: "🖥️", n: 1, layer: "L7" }
+    { name: "Server",  sub: "api-service pod · 10.244.2.10", icon: "🖥️", n: 1, layer: "L7" }
   ];
 
   // ---- header anatomy ---------------------------------------------------

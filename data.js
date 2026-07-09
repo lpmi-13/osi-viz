@@ -77,7 +77,7 @@ window.OSI = (function () {
   function postBatch() {
     const users = [{ name: pick(NAMES), role: pick(ROLES), team: pick(TEAMS) },
       { name: pick(NAMES), role: pick(ROLES), team: pick(TEAMS) }];
-    return withBody("POST", "/api/users:batchCreate", JSON.stringify({ users: users }), "201 Created");
+    return withBody("POST", "/api/users/batch-create", JSON.stringify({ users: users }), "201 Created");
   }
   function withBody(method, path, body, status) {
     return {
@@ -193,14 +193,14 @@ window.OSI = (function () {
       { cells: [ { label: "Source port", w: 16, sub: "16 bits" }, { label: "Destination port", w: 16, sub: "16 bits" } ] },
       { cells: [ { label: "Sequence number", w: 32, sub: "32 bits" } ] },
       { cells: [ { label: "Acknowledgement number", w: 32, sub: "32 bits" } ] },
-      { cells: [ { label: "Data offset", w: 4, sub: "4b" }, { label: "Reserved", w: 4, sub: "4b" }, { label: "Flags", w: 8, flags: ["URG", "ACK", "PSH", "RST", "SYN", "FIN"] }, { label: "Window", w: 16, sub: "16 bits" } ] },
+      { cells: [ { label: "Data offset", w: 4, sub: "4 bits" }, { label: "Reserved", w: 4, sub: "4 bits" }, { label: "Flags", w: 8, flags: ["URG", "ACK", "PSH", "RST", "SYN", "FIN"] }, { label: "Window", w: 16, sub: "16 bits" } ] },
       { cells: [ { label: "Checksum", w: 16, sub: "16 bits" }, { label: "Urgent pointer", w: 16, sub: "16 bits" } ] },
       { cells: [ { label: "Options and padding", w: 32, sub: "variable", variable: true } ] }
     ] },
     ip: { name: "IPv4 header", rows: [
-      { cells: [ { label: "Version", w: 4, sub: "4b" }, { label: "IHL", w: 4, sub: "4b" }, { label: "DSCP·ECN", w: 8, sub: "8b" }, { label: "Total length", w: 16, sub: "16 bits" } ] },
-      { cells: [ { label: "Identification", w: 16, sub: "16 bits" }, { label: "Flags", w: 3, sub: "3b" }, { label: "Fragment offset", w: 13, sub: "13b" } ] },
-      { cells: [ { label: "TTL", w: 8, sub: "8b" }, { label: "Protocol", w: 8, sub: "8b" }, { label: "Header checksum", w: 16, sub: "16 bits" } ] },
+      { cells: [ { label: "Version", w: 4, sub: "4 bits" }, { label: "IHL", w: 4, sub: "4 bits" }, { label: "DSCP·ECN", w: 8, sub: "8 bits" }, { label: "Total length", w: 16, sub: "16 bits" } ] },
+      { cells: [ { label: "Identification", w: 16, sub: "16 bits" }, { label: "Flags", w: 3, sub: "3 bits" }, { label: "Fragment offset", w: 13, sub: "13 bits" } ] },
+      { cells: [ { label: "TTL", w: 8, sub: "8 bits" }, { label: "Protocol", w: 8, sub: "8 bits" }, { label: "Header checksum", w: 16, sub: "16 bits" } ] },
       { cells: [ { label: "Source address", w: 32, sub: "32 bits" } ] },
       { cells: [ { label: "Destination address", w: 32, sub: "32 bits" } ] },
       { cells: [ { label: "Options and padding", w: 32, sub: "variable", variable: true } ] }
@@ -209,8 +209,8 @@ window.OSI = (function () {
       { cells: [ { label: "Outer Ethernet", w: 14, sub: "14 B", variable: true } ] },
       { cells: [ { label: "Outer IPv4", w: 20, sub: "20 B", variable: true } ] },
       { cells: [ { label: "Outer UDP · dport 4789", w: 8, sub: "8 B", variable: true } ] },
-      { cells: [ { label: "VXLAN flags", w: 8, sub: "8b" }, { label: "Reserved", w: 24, sub: "24b" } ] },
-      { cells: [ { label: "VNI · 42", w: 24, sub: "24b" }, { label: "Reserved", w: 8, sub: "8b" } ] }
+      { cells: [ { label: "VXLAN flags", w: 8, sub: "8 bits" }, { label: "Reserved", w: 24, sub: "24 bits" } ] },
+      { cells: [ { label: "VNI · 42", w: 24, sub: "24 bits" }, { label: "Reserved", w: 8, sub: "8 bits" } ] }
     ] }
   };
 

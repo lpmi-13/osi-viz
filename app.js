@@ -85,11 +85,12 @@
     let t = 0; layers.forEach(function (l) { t += l.bytes; });
     return Math.min(MAX_ROWS, Math.max(1, Math.ceil(t / GRID_ROW))) * GROW;      // cap at 7 rows
   }
-  function layoutCells(layers) {
-    const fullH = boxH(layers), cells = [];
+  function layoutCells(layers, animIdx, animBytes, fixedH) {
+    const bAt = function (i) { return i === animIdx ? animBytes : layers[i].bytes; };
+    const fullH = fixedH == null ? boxH(layers) : fixedH, cells = [];
     let off = 0;
-    layers.forEach(function (l) {
-      let b = off; const e = off + l.bytes;
+    layers.forEach(function (l, i) {
+      let b = off; const e = off + bAt(i);
       while (b < e) {
         const row = Math.floor(b / GRID_ROW), p = b % GRID_ROW;
         const runEnd = Math.min(e, (row + 1) * GRID_ROW), run = runEnd - b;
@@ -135,14 +136,17 @@
     if (reduceMotion || Math.abs(n - gridN) !== 1) { gridN = n; drawGrid(present); return; }
     const dir = n > gridN ? "in" : "out";
     const drawn = dir === "in" ? present : ORDER.slice(0, n + 1);   // 'out' keeps the leaving layer visible
-    const lay = layoutCells(drawn);
-    paintCells(lay.cells);                                          // static during the whole transition
-    const startH = dir === "in" ? boxH(ORDER.slice(0, n - 1)) : lay.fullH;
-    const endH = dir === "in" ? lay.fullH : boxH(present);
+    const idx = dir === "in" ? n - 1 : n;
+    const full = drawn[idx].bytes;
+    const fullH = boxH(drawn);
+    const startH = dir === "in" ? boxH(ORDER.slice(0, n - 1)) : fullH;
+    const endH = dir === "in" ? fullH : boxH(present);
     gridN = n;
     const t0 = performance.now();
     (function frame(now) {
       const e = easeOutCubic(Math.min(1, (now - t0) / GRID_DUR));
+      const lay = layoutCells(drawn, idx, full * (dir === "in" ? e : 1 - e), fullH);
+      paintCells(lay.cells);
       setWindow(lay.fullH, startH + (endH - startH) * e);
       if (e < 1) gridRaf = requestAnimationFrame(frame);
       else { gridRaf = null; drawGrid(present); }
@@ -245,7 +249,11 @@
     rowEls[key].classList.toggle("open", open);
     rowEls[key].querySelector(".lrow-head").setAttribute("aria-expanded", open ? "true" : "false");
   }
-  function toggleRow(key) { setRowOpen(key, !rowEls[key].classList.contains("open")); }
+  function toggleRow(key) {
+    const shouldOpen = !rowEls[key].classList.contains("open");
+    if (shouldOpen) KEYS.forEach(function (otherKey) { if (otherKey !== key) setRowOpen(otherKey, false); });
+    setRowOpen(key, shouldOpen);
+  }
 
   // ---------- navigation ----------
   function goTo(s) { stopPlay(); step = clamp(s, 0, MAXSTEP); render(); }

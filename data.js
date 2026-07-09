@@ -24,6 +24,7 @@ window.OSI = (function () {
   const HOST = "api-service";
   const NAMES = ["ada", "grace", "lin", "kofi", "mira", "sam", "yuki", "noor"];
   const ROLES = ["engineer", "admin", "analyst", "viewer", "operator"];
+  const TEAMS = ["platform", "payments", "growth", "infra", "data"];
 
   // ---- L7 request catalogue --------------------------------------------
   // Each returns { method, path, body|null, headers[], note?, tool:{cmd,out} }.
@@ -54,17 +55,29 @@ window.OSI = (function () {
       tool: { cmd: "curl -X OPTIONS https://" + HOST + path + " \\\n    -H 'Origin: https://app.example.com' \\\n    -H 'Access-Control-Request-Method: POST'",
         out: "<\n< HTTP/2 204 No Content\n< access-control-allow-origin: https://app.example.com\n< access-control-allow-methods: GET, POST, PUT, DELETE" } };
   }
+  // small bodies (≈5 rows)
   function post() {
     const body = JSON.stringify({ name: pick(NAMES), role: pick(ROLES) });
     return withBody("POST", "/api/users", body, "201 Created");
   }
-  function put() {
-    const body = JSON.stringify({ role: pick(ROLES) });
-    return withBody("PUT", "/api/users/" + rint(1000, 99999), body, "200 OK");
-  }
   function patch() {
     const body = JSON.stringify({ status: pick(["active", "suspended", "invited"]) });
     return withBody("PATCH", "/api/users/" + rint(1000, 99999), body, "200 OK");
+  }
+  // medium bodies (≈6 rows)
+  function postProfile() {
+    const body = JSON.stringify({ name: pick(NAMES), email: pick(NAMES) + "@example.com", role: pick(ROLES), team: pick(TEAMS) });
+    return withBody("POST", "/api/users", body, "201 Created");
+  }
+  function putConfig() {
+    const body = JSON.stringify({ replicas: rint(2, 9), image: "api:" + rint(1, 40) + ".2", env: pick(["prod", "staging", "dev"]), team: pick(TEAMS) });
+    return withBody("PUT", "/api/deployments/" + pick(TEAMS) + "-api", body, "200 OK");
+  }
+  // the big one — a batch create that reaches the box's 7-row cap. Kept rare.
+  function postBatch() {
+    const users = [{ name: pick(NAMES), role: pick(ROLES), team: pick(TEAMS) },
+      { name: pick(NAMES), role: pick(ROLES), team: pick(TEAMS) }];
+    return withBody("POST", "/api/users:batchCreate", JSON.stringify({ users: users }), "201 Created");
   }
   function withBody(method, path, body, status) {
     return {
@@ -75,7 +88,9 @@ window.OSI = (function () {
         out: "> " + method + " " + path + " HTTP/2\n> content-length: " + byteLen(body) + "\n" + body + "\n<\n< HTTP/2 " + status } };
   }
 
-  const CATALOG = [get, post, put, patch, del, options];
+  // GET/DELETE/OPTIONS carry no body; the rest span small → large payloads.
+  // The largest (postBatch, ~7 rows) appears once, so it stays comparatively rare.
+  const CATALOG = [get, get, del, options, post, post, patch, patch, postProfile, putConfig, putConfig, postBatch];
 
   // ---- wrap an L7 request in the fixed lower-layer headers --------------
   // TLS/TCP/IP/VXLAN header sizes are real and fixed; only the app (body) and
@@ -90,40 +105,40 @@ window.OSI = (function () {
 
     const app = r.body
       ? { key: "app", color: "--c-app", bytes: bodyBytes,
-          decode: "body  " + r.body,
+          caption: "The request itself — the only bytes the app actually cares about.",
           fields: [r.body + "   (" + bodyBytes + " bytes — the application payload)"],
           tool: { cmd: "# what the app handed to the socket", out: r.body } }
       : { key: "app", color: "--c-app", bytes: 0,
-          decode: "body  (none)",
+          caption: "A " + r.method + " has no body — the request is just the method and path.",
           fields: [r.note || ("A " + r.method + " request has no body — 0 application bytes.")],
           tool: { cmd: "# a " + r.method + " has no request body", out: "(no body)" } };
 
     const http = { key: "http", color: "--c-http", bytes: httpBytes,
-      decode: "HTTP  " + r.method + " " + r.path,
+      caption: "The method, path and headers — what you're asking the server to do.",
       fields: r.headers.concat(r.body ? [] : ["(no body)"]),
       tool: r.tool };
 
     const tls = { key: "tls", color: "--c-tls", bytes: tlsBytes,
-      decode: "TLS 1.3  Application Data (encrypted)",
+      caption: "Encrypts everything above so nothing on the network can read it.",
       fields: ["TLSv1.3 · AES-128-GCM", "record: Application Data (23)", "wraps the HTTP request above"],
       tool: { cmd: "openssl s_client -connect " + HOST + ":443",
         out: "Cipher: TLS_AES_128_GCM_SHA256\nApplication Data (23), len " + (httpBytes + bodyBytes) + "   # ciphertext" } };
 
     const tcp = { key: "tcp", color: "--c-tcp", bytes: 20,
-      decode: "TCP  " + sport + " → 443  seq " + seq + "  [ACK,PSH]",
+      caption: "Ports and sequence numbers so the bytes arrive complete and in order.",
       fields: ["sport " + sport + " → dport 443", "seq " + seq, "flags [ACK,PSH]"],
       tool: { cmd: "ss -tiep dst 10.244.2.10",
         out: "ESTAB 10.244.1.5:" + sport + " 10.244.2.10:443\n  mss:1460 bytes_sent:" + l4payload } };
 
     const ip = { key: "ip", color: "--c-ip", bytes: 20,
-      decode: "IP  10.244.1.5 → 10.244.2.10  ttl 64",
+      caption: "Source and destination IP addresses so routers know where to send it.",
       fields: ["src 10.244.1.5 → dst 10.244.2.10", "ttl 64 · proto TCP(6)"],
       tool: { cmd: "ip route get 10.244.2.10",
         out: "10.244.2.10 via 10.244.1.1 dev eth0 src 10.244.1.5" } };
 
-    const vxlan = { key: "vxlan", color: "--c-vxlan", bytes: 50,
-      decode: "VXLAN  192.168.1.10 → .11  udp 4789  vni 42",
-      fields: ["outer 192.168.1.10 → 192.168.1.11", "udp 4789 · vni 42 (L2 frame over the underlay)"],
+    const vxlan = { key: "vxlan", color: "--c-vxlan", bytes: 50, tag: "overlay only",
+      caption: "Overlay networks only (Kubernetes, Tailscale…): the CNI wraps the whole frame in an outer packet so it can cross the physical underlay. Plain host-to-host traffic has no VXLAN.",
+      fields: ["outer 192.168.1.10 → 192.168.1.11", "udp 4789 · vni 42 (inner L2 frame over the underlay)", "added by the pod's CNI (Calico / Cilium / Flannel …)"],
       tool: { cmd: "tcpdump -ni eth0 'udp port 4789'",
         out: "IP 192.168.1.10 > 192.168.1.11: VXLAN vni 42\n  IP 10.244.1.5." + sport + " > 10.244.2.10.443: tcp " + l4payload } };
 
@@ -147,7 +162,7 @@ window.OSI = (function () {
   // `layer` = the OSI-ish number of the node's outermost layer (app & HTTP
   // both live at L7; TLS at L6; TCP L4; IP L3; the VXLAN overlay frame at L2).
   const nodes = [
-    { name: "Client",  sub: "frontend · 10.244.1.5",     icon: "🖥️", n: 1, layer: "L7" },
+    { name: "Client",  sub: "frontend pod · 10.244.1.5",  icon: "🖥️", n: 1, layer: "L7" },
     { name: "HTTP",    sub: "request framing",            icon: "🌐", n: 2, layer: "L7" },
     { name: "TLS",     sub: "encryption",                 icon: "🔒", n: 3, layer: "L6" },
     { name: "TCP",     sub: "transport",                  icon: "🔌", n: 4, layer: "L4" },
@@ -158,7 +173,7 @@ window.OSI = (function () {
     { name: "TCP",     sub: "socket",                     icon: "🔌", n: 4, layer: "L4" },
     { name: "TLS",     sub: "decrypt",                    icon: "🔒", n: 3, layer: "L6" },
     { name: "HTTP",    sub: "parse",                      icon: "🌐", n: 2, layer: "L7" },
-    { name: "Server",  sub: "api-service · 10.244.2.10",  icon: "🖥️", n: 1, layer: "L7" }
+    { name: "Server",  sub: "api-service pod · 10.244.2.10", icon: "🖥️", n: 1, layer: "L7" }
   ];
 
   // ---- header anatomy ---------------------------------------------------

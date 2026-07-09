@@ -1,428 +1,305 @@
 /* ============================================================
-   app.js — a camera that follows one request along a U-shaped path:
-   down the client's stack, across the underlay, up the server's.
-   The data is a big byte-grid box (each header's area ∝ its bytes);
-   each layer's block flies in/out as the data reaches its node.
-   Tap the box to inspect the real headers.
+   app.js — OSI Viz. A static "encapsulation anatomy": every layer
+   wrapping one request is shown at once, coloured consistently, each
+   with a plain-language caption. A proportion bar shows how little of
+   what's on the wire is the real data. Prev / Next (or ← →) step through
+   the client wrapping the request and the server unwrapping it; tap any
+   layer to expand its real header fields.
    ============================================================ */
 (function () {
   "use strict";
   const D = window.OSI;
-  const NODES = D.nodes;
-  let REQ = D.defaultRequest();          // current request being visualised
-  let ORDER = REQ.ORDER;                 // its six-layer stack, inner → outer
-  const FORMATS = D.formats;             // static header-field layouts
-  const LNAME = D.names;                 // short layer names for the data field
-  const MAXP = NODES.length - 1;
-  const SVGNS = "http://www.w3.org/2000/svg";
-  const uShape = function (s) { return 4 * s * (1 - s); };  // 0 at ends, 1 at the bottom of the U
+  const NODES = D.nodes;                  // 12 steps: client wrap → wire → server unwrap
+  const FORMATS = D.formats;              // static header-field layouts
+  const LNAME = D.names;                  // short layer names ({app:'body', ...})
+  let REQ = D.defaultRequest();
+  let ORDER = REQ.ORDER;                  // six layers, inner → outer
+  const MAXSTEP = NODES.length - 1;       // 11
 
-  const stage = document.getElementById("stage");
-  const trackPath = document.getElementById("track-path");
-  const blobG = document.getElementById("blob");
-  const nodesWrap = document.getElementById("nodes");
-  const hit = document.getElementById("blob-hit");
-  const bound = document.getElementById("blob-bound");
+  // layer → OSI-ish number (app & HTTP both L7; TLS L6; TCP L4; IP L3; VXLAN L2)
+  const LAYERNUM = { app: "L7", http: "L7", tls: "L6", tcp: "L4", ip: "L3", vxlan: "L2" };
 
-  const easeOutCubic = function (t) { return 1 - Math.pow(1 - t, 3); };
   const esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
+  const clamp = function (v, a, b) { return Math.min(b, Math.max(a, v)); };
+  const $ = function (id) { return document.getElementById(id); };
 
-  // progress runs 0 .. MAXP (continuous). 0 = client L7, MAXP = server L7.
-  let progress = 0;
-  const rects = [];          // pooled SVG rects for the byte-grid cells
+  const stage = $("stage"), reqLabel = $("req-label");
+  const epClient = $("ep-client"), epServer = $("ep-server");
+  const phaseTag = $("phase-tag"), phaseNode = $("phase-node");
+  const propStat = $("prop-stat"), stackEl = $("stack");
+  const propGrid = $("prop-grid"), gridCells = $("grid-cells"), gridFrame = $("grid-frame"), gridClipRect = $("grid-clip-rect");
 
-  // header fly-in / fly-out animation (decoupled from scroll speed)
-  const ANIM_DUR = 480;
-  let anim = null;           // { idx, dir:'in'|'out', t0, layers }
-  let animRaf = null;
-  let lastCount = 1;
+  // boxy byte-grid (like the favicon): 50 bytes/row, bottom-anchored, right → left,
+  // growing up; area ∝ bytes. The box hugs its rows, so it grows as layers pile on.
+  const SVGNS = "http://www.w3.org/2000/svg";
+  const GRID_ROW = 50, GRID_W = 200, GROW = 24, GBW = GRID_W / GRID_ROW, MAX_ROWS = 7;
+  const GRID_DUR = 440;
+  const gcellPool = [];
+  const easeOutCubic = function (t) { return 1 - Math.pow(1 - t, 3); };
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let gridN = presentAt(0).length;        // layer count of the last settled grid
+  let gridRaf = null;
 
-  // ---------- build nodes + progress dots ----------
-  const nodeEls = NODES.map(function (n) {
-    const el = document.createElement("div");
-    el.className = "node";
-    const col = "var(" + ORDER[n.n - 1].color + ")";        // node colour = its outermost layer
-    el.style.color = col;
-    el.style.setProperty("--nc", col);                      // for the layer badge fill
-    el.innerHTML =
-      '<div class="node-icon">' + esc(n.icon) +
-        (n.layer ? '<span class="node-layer">' + esc(n.layer) + "</span>" : "") + "</div>" +
-      '<div class="node-name-row"><span class="node-swatch"></span><span class="node-name">' + esc(n.name) + "</span></div>" +
-      '<div class="node-sub">' + esc(n.sub) + "</div>";
-    nodesWrap.appendChild(el);
-    return el;
-  });
+  let step = 0;                           // start at the origin: the app's data, unwrapped
+  let playTimer = null;
 
-  const dots = NODES.map(function (n, i) {
-    const b = document.createElement("button");
-    b.className = "pdot";
-    b.setAttribute("aria-label", "Go to " + n.name);
-    b.addEventListener("click", function () { tweenTo(i); });
-    document.getElementById("progress-dots").appendChild(b);
-    return b;
-  });
+  function presentAt(s) { return ORDER.slice(0, NODES[s].n); }        // inner → outer
+  function layerByKey(key) { for (let i = 0; i < ORDER.length; i++) if (ORDER[i].key === key) return ORDER[i]; return null; }
 
-  // ---------- geometry ----------
-  // The camera follows the packet: the box stays fixed on screen while the
-  // nodes stream past, spread far apart (so ≤2 are ever visible). The U is
-  // conveyed by the track tilting down on the way in and up on the way out.
-  function geom() {
-    const w = stage.clientWidth, h = stage.clientHeight;
-    const R = Math.max(52, 0.14 * Math.min(w, h));      // scale of the packet grid
-    const boxY = h * 0.6;                               // the packet sits fixed here
-    const gap = R + 104;                                // the current station rides this far above it
-    const spx = Math.max(w * 0.62, 300);                // wide spacing → at most 2 nodes on screen
-    const vScale = spx * 4.6;                           // vertical scale → keeps the slope ~45°
-    return { w: w, h: h, R: R, ax: w * 0.42, boxY: boxY, stationBaseY: boxY - gap, gap: gap, spx: spx, vScale: vScale };
+  function phaseAt(s) {
+    if (s === 0) return { word: "at the client", side: "client" };
+    if (s <= 5) return { word: "wrapping", side: "client" };
+    if (s === 6) return { word: "on the wire", side: "wire" };
+    if (s === MAXSTEP) return { word: "delivered", side: "server" };
+    return { word: "unwrapping", side: "server" };
   }
 
-  // Which layers are on the packet at position p, inner→outer. Discrete: the
-  // layer count is whatever node the packet has reached (floor).
-  function layersAt(p) {
-    const n = NODES[Math.min(MAXP, Math.max(0, Math.floor(p)))].n;
-    const out = [];
-    for (let k = 0; k < n; k++) out.push({ color: ORDER[k].color, bytes: ORDER[k].bytes });
-    return out;
-  }
+  // ---------- build the fixed scaffolding once (one row + one bar segment
+  //            per layer, outermost → core). Content is refreshed per request. ----------
+  const KEYS = ORDER.map(function (l) { return l.key; }).reverse();   // [vxlan,ip,tcp,tls,http,app]
+  const rowEls = {};
 
-  // Byte-grid geometry: 60 bytes per row, bottom row first, right → left,
-  // wrapping to the row above. Anchored at the bottom (the data row is fixed),
-  // so adding a layer only piles rows on top — existing cells never move.
-  const ROW = 60;
-  function computeRegions(layers, R) {
-    const W = R * 2.4, rowH = R * 0.42, byteW = W / ROW, anchor = R * 0.9;
-    let total = 0; layers.forEach(function (l) { total += l.bytes; });
-    const rows = Math.max(1, Math.ceil(total / ROW));
-    const regions = [];
+  KEYS.forEach(function (key) {
+    const row = document.createElement("div");
+    row.className = "lrow";
+    row.innerHTML =
+      '<div class="lrow-clip"><div class="lrow-card">' +
+        '<button class="lrow-head" aria-expanded="false">' +
+          '<span class="lrow-sw"></span>' +
+          '<span class="lrow-main"><span class="lrow-name"></span><span class="lrow-cap"></span></span>' +
+          '<span class="lrow-bytes"></span>' +
+          '<span class="lrow-chev" aria-hidden="true">▸</span>' +
+        '</button>' +
+        '<div class="lrow-detail"><div class="lrow-detail-in"></div></div>' +
+      '</div></div>';
+    stackEl.appendChild(row);
+    rowEls[key] = row;
+    row.querySelector(".lrow-head").addEventListener("click", function () { toggleRow(key); });
+  });
+
+  // ---------- boxy byte-grid ----------
+  // Cells are laid out once at fixed positions (bottom-anchored, 50 bytes/row,
+  // right → left). A viewBox "window" reveals the bottom `winH` of that layout,
+  // so the box height can be eased *continuously* — no row-by-row jumping.
+  function boxH(layers) {
+    let t = 0; layers.forEach(function (l) { t += l.bytes; });
+    return Math.min(MAX_ROWS, Math.max(1, Math.ceil(t / GRID_ROW))) * GROW;      // cap at 7 rows
+  }
+  function layoutCells(layers) {
+    const fullH = boxH(layers), cells = [];
     let off = 0;
-    layers.forEach(function (l, li) {
+    layers.forEach(function (l) {
       let b = off; const e = off + l.bytes;
       while (b < e) {
-        const row = Math.floor(b / ROW), posInRow = b % ROW;
-        const runEnd = Math.min(e, (row + 1) * ROW), runLen = runEnd - b;
-        const xRight = W / 2 - posInRow * byteW;
-        regions.push({ x: xRight - runLen * byteW, y: anchor - (row + 1) * rowH, w: runLen * byteW, h: rowH, color: l.color, li: li });
+        const row = Math.floor(b / GRID_ROW), p = b % GRID_ROW;
+        const runEnd = Math.min(e, (row + 1) * GRID_ROW), run = runEnd - b;
+        cells.push({ x: GRID_W - (p + run) * GBW, y: fullH - (row + 1) * GROW, w: run * GBW, color: l.color });
         b = runEnd;
       }
       off = e;
     });
-    return { regions: regions, W: W, rowH: rowH, rows: rows, anchor: anchor };
+    return { cells: cells, fullH: fullH };
   }
-
-  function ensureRects(n) {
-    while (rects.length < n) {
+  function paintCells(cells) {
+    while (gcellPool.length < cells.length) {
       const r = document.createElementNS(SVGNS, "rect");
-      blobG.appendChild(r);
-      rects.push(r);
+      r.setAttribute("stroke", "rgba(6,10,22,.85)"); r.setAttribute("stroke-width", "0.8");
+      gridCells.appendChild(r); gcellPool.push(r);
     }
-  }
-
-  // ---------- render ----------
-  function render() {
-    const g = geom();
-    const dNow = uShape(progress / MAXP);
-
-    // stations tilt around the fixed box: the current one stays at stationBaseY,
-    // those ahead/behind sit lower/higher by their depth on the U.
-    NODES.forEach(function (n, i) {
-      const x = g.ax + (i - progress) * g.spx;
-      const y = g.stationBaseY + (uShape(i / MAXP) - dNow) * g.vScale;
-      const el = nodeEls[i];
-      el.style.transform = "translate(" + x + "px," + y + "px)";
-      el.style.opacity = (x > -200 && x < g.w + 200) ? "1" : "0";
-      el.classList.toggle("active", Math.abs(i - progress) < 0.5);
-    });
-
-    // the U track: sample the curve densely across the visible window
-    let d = "", first = true;
-    const t0 = Math.max(0, progress - 1.4), t1 = Math.min(MAXP, progress + 1.4);
-    for (let t = t0; t <= t1 + 1e-6; t += 0.05) {
-      const tt = Math.min(t1, t);
-      const x = g.ax + (tt - progress) * g.spx;
-      const y = g.stationBaseY + (uShape(tt / MAXP) - dNow) * g.vScale;
-      d += (first ? "M" : "L") + x.toFixed(1) + " " + y.toFixed(1) + " ";
-      first = false;
-    }
-    trackPath.setAttribute("d", d);
-
-    // the box is fixed on screen; the group transform is immediate.
-    const cy = g.boxY;
-    blobG.setAttribute("transform", "translate(" + g.ax.toFixed(1) + " " + cy.toFixed(1) + ")");
-
-    // decide what to draw + the animation parameter p (0 = at screen centre, 1 = home)
-    let drawLayers, animIdx = -1, ap = 1;
-    if (anim) {
-      const k = easeOutCubic(Math.min(1, (performance.now() - anim.t0) / ANIM_DUR));
-      drawLayers = anim.layers; animIdx = anim.idx;
-      ap = anim.dir === "in" ? k : (1 - k);
-    } else {
-      drawLayers = layersAt(progress);
-    }
-    const cr = computeRegions(drawLayers, g.R);
-    const scx = g.w / 2 - g.ax, scy = g.h / 2 - cy;   // screen centre, in group-local coords
-
-    ensureRects(cr.regions.length);
-    rects.forEach(function (r, i) {
-      if (i >= cr.regions.length) { r.style.display = "none"; return; }
-      const rg = cr.regions[i];
-      let x = rg.x, y = rg.y, w = rg.w, hh = rg.h, op = 1;
-      if (rg.li === animIdx) {                        // this layer flies in/out from the middle
-        const gcx = rg.x + rg.w / 2, gcy = rg.y + rg.h / 2;
-        const sc = 0.25 + 0.75 * ap;
-        w = rg.w * sc; hh = rg.h * sc;
-        x = (scx + (gcx - scx) * ap) - w / 2;
-        y = (scy + (gcy - scy) * ap) - hh / 2;
-        op = ap;
-      }
-      r.setAttribute("x", x.toFixed(1)); r.setAttribute("y", y.toFixed(1));
-      r.setAttribute("width", Math.max(0, w).toFixed(1)); r.setAttribute("height", Math.max(0, hh).toFixed(1));
-      r.setAttribute("rx", "0"); r.setAttribute("fill", "var(" + rg.color + ")");
-      r.setAttribute("fill-opacity", op.toFixed(2));
-      r.setAttribute("stroke", "rgba(6,10,22,.85)"); r.setAttribute("stroke-width", "1.5");
+    gcellPool.forEach(function (r, k) {
+      if (k >= cells.length) { r.style.display = "none"; return; }
+      const c = cells[k];
+      r.setAttribute("x", c.x.toFixed(2)); r.setAttribute("y", c.y.toFixed(2));
+      r.setAttribute("width", Math.max(0, c.w).toFixed(2)); r.setAttribute("height", GROW.toFixed(2));
+      r.setAttribute("fill", "var(" + c.color + ")");
       r.style.display = "";
     });
-
-    // dashed frosted bounding box, sized to the settled grid (60-byte rows wide).
-    // While idle, drawLayers is already the settled set, so reuse cr.
-    const settled = anim ? computeRegions(layersAt(progress), g.R) : cr;
-    const pad = 7, gridTop = settled.anchor - settled.rows * settled.rowH;
-    bound.style.width = (settled.W + 2 * pad) + "px";
-    bound.style.height = (settled.rows * settled.rowH + 2 * pad) + "px";
-    bound.style.transform = "translate(" + (g.ax - settled.W / 2 - pad) + "px," + (cy + gridTop - pad) + "px)";
-
-    // tap target covers the grid
-    const gridH = settled.rows * settled.rowH;
-    hit.style.width = settled.W + "px";
-    hit.style.height = gridH + "px";
-    hit.style.transform = "translate(" + (g.ax - settled.W / 2) + "px," + (cy + gridTop) + "px)";
-
-    dots.forEach(function (dot, i) {
-      dot.classList.toggle("done", i <= progress + 0.01);
-      dot.classList.toggle("current", Math.round(progress) === i);
-    });
+  }
+  function setWindow(fullH, winH) {
+    const minY = fullH - winH;
+    propGrid.setAttribute("viewBox", "0 " + minY.toFixed(2) + " " + GRID_W + " " + winH.toFixed(2));
+    const fy = (minY + 0.75).toFixed(2), fh = (winH - 1.5).toFixed(2);
+    gridFrame.setAttribute("y", fy); gridFrame.setAttribute("height", fh);
+    gridClipRect.setAttribute("y", fy); gridClipRect.setAttribute("height", fh);
+  }
+  function drawGrid(layers) {                       // settled: full window
+    const lay = layoutCells(layers);
+    paintCells(lay.cells);
+    setWindow(lay.fullH, lay.fullH);
   }
 
-  // ---------- header fly-in / fly-out animation ----------
-  function startAnim(newCount, dir) {
-    const layers = dir === "in" ? layersAt(progress) : ORDER.slice(0, newCount + 1).map(function (l) { return { color: l.color, bytes: l.bytes }; });
-    const idx = dir === "in" ? newCount - 1 : newCount;   // the layer that appears/disappears
-    anim = { idx: idx, dir: dir, t0: performance.now(), layers: layers };
-    if (!animRaf) animRaf = requestAnimationFrame(animLoop);
-  }
-  function animLoop() {
-    render();
-    if (anim && performance.now() - anim.t0 < ANIM_DUR) { animRaf = requestAnimationFrame(animLoop); }
-    else { anim = null; animRaf = null; render(); }
-  }
-
-  function setProgress(p) {
-    progress = Math.min(MAXP, Math.max(0, p));
-    const c = layersAt(progress).length;
-    if (c !== lastCount) { startAnim(c, c > lastCount ? "in" : "out"); lastCount = c; }
-    render();
-  }
-
-  // ---------- tween (keyboard / dot jumps) ----------
-  let raf = null;
-  function tweenTo(target) {
-    target = Math.min(MAXP, Math.max(0, target));
-    if (raf) cancelAnimationFrame(raf);
-    const start = progress, t0 = performance.now(), dur = 420;
-    (function step(now) {
-      const k = Math.min(1, (now - t0) / dur);
-      setProgress(start + (target - start) * easeOutCubic(k));
-      if (k < 1) raf = requestAnimationFrame(step);
+  // Animate the box when a single layer is added/removed; snap on jumps / reduced motion.
+  function updateGrid(present) {
+    const n = present.length;
+    if (gridRaf) { cancelAnimationFrame(gridRaf); gridRaf = null; }
+    if (reduceMotion || Math.abs(n - gridN) !== 1) { gridN = n; drawGrid(present); return; }
+    const dir = n > gridN ? "in" : "out";
+    const drawn = dir === "in" ? present : ORDER.slice(0, n + 1);   // 'out' keeps the leaving layer visible
+    const lay = layoutCells(drawn);
+    paintCells(lay.cells);                                          // static during the whole transition
+    const startH = dir === "in" ? boxH(ORDER.slice(0, n - 1)) : lay.fullH;
+    const endH = dir === "in" ? lay.fullH : boxH(present);
+    gridN = n;
+    const t0 = performance.now();
+    (function frame(now) {
+      const e = easeOutCubic(Math.min(1, (now - t0) / GRID_DUR));
+      setWindow(lay.fullH, startH + (endH - startH) * e);
+      if (e < 1) gridRaf = requestAnimationFrame(frame);
+      else { gridRaf = null; drawGrid(present); }
     })(t0);
   }
-  function stopTween() { if (raf) { cancelAnimationFrame(raf); raf = null; } }
 
-  // ---------- input: scroll / swipe drive left→right travel ----------
-  stage.addEventListener("wheel", function (e) {
-    e.preventDefault();
-    stopTween();
-    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-    setProgress(progress + delta / 1500);         // slower: ~one node per 1500px of scroll
-  }, { passive: false });
-
-  let tStartX = 0, tStartY = 0, tStartP = 0, touching = false;
-  stage.addEventListener("touchstart", function (e) {
-    if (e.touches.length !== 1) return;
-    touching = true; tStartP = progress;
-    tStartX = e.touches[0].clientX; tStartY = e.touches[0].clientY;
-    stopTween();
-  }, { passive: true });
-  stage.addEventListener("touchmove", function (e) {
-    if (!touching) return;
-    const dx = e.touches[0].clientX - tStartX;
-    const dy = e.touches[0].clientY - tStartY;
-    const move = Math.abs(dx) >= Math.abs(dy) ? -dx : -dy;   // swipe left/up → forward
-    e.preventDefault();
-    setProgress(tStartP + move / 260);            // slower: ~260px of swipe per node
-  }, { passive: false });
-  stage.addEventListener("touchend", function () { touching = false; }, { passive: true });
-
-  // keyboard
-  stage.addEventListener("keydown", function (e) {
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); tweenTo(Math.round(progress) + 1); }
-    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); tweenTo(Math.round(progress) - 1); }
-    else if (e.key === "Home") { e.preventDefault(); tweenTo(0); }
-    else if (e.key === "End") { e.preventDefault(); tweenTo(MAXP); }
+  // the journey rail's stops (client → down the stack → underlay → up → server)
+  const railDots = Array.prototype.slice.call(document.querySelectorAll(".rdot"));
+  railDots.forEach(function (dot) {
+    dot.addEventListener("click", function () { goTo(parseInt(dot.dataset.step, 10)); });
   });
 
-  // ---------- inspector (tap the data) ----------
-  const detail = document.getElementById("detail");
-  const pagerTrack = document.getElementById("pager-track");
-  const pgtabs = [document.getElementById("pgtab-0"), document.getElementById("pgtab-1")];
-  const detailSub = document.getElementById("detail-sub");
-  const detailDecode = document.getElementById("detail-decode");
-  const detailCmd = document.getElementById("detail-cmd");
-  const detailOut = document.getElementById("detail-out");
-  const detailHeaders = document.getElementById("detail-headers");
-
-  function setPage(pg) {
-    pagerTrack.style.transform = "translateX(" + (-pg * 50) + "%)";
-    pgtabs.forEach(function (t, i) { t.setAttribute("aria-selected", i === pg); });
-  }
-
-  // Build the header-anatomy diagram for the outermost present layer.
-  function dataField(bytes, sub) {
-    return '<div class="hf-data"><div class="hf-data-t">Data<span class="b">' + bytes + ' bytes</span></div>' +
-      '<div class="hf-data-s">' + sub + "</div></div>";
-  }
-  function headerAnatomy(present) {
-    const outer = present[present.length - 1];
-    const inner = present.slice(0, -1);
-    const innerBytes = inner.reduce(function (s, l) { return s + l.bytes; }, 0);
-    const innerNames = inner.slice().reverse().map(function (l) { return LNAME[l.key]; }).join(" · ");
-
-    // the Client node's outermost "layer" is the raw body — no protocol header
-    if (outer.key === "app") {
-      return '<p class="hf-note">This is the raw <b>application data</b> — the request body the app is sending, before any protocol header is wrapped around it.</p>' +
-        dataField(outer.bytes, outer.bytes ? "the JSON body itself" : "no body — this request carries none");
-    }
-
-    const fmt = FORMATS[outer.key];
-    // top schematic — Header | Data, sized in proportion (echoes the RFC diagrams)
-    let html = '<div class="hf-split" style="--a:var(' + outer.color + ')">' +
-      '<div class="hf-split-h" style="flex:' + Math.max(1, outer.bytes) + '">' + esc(LNAME[outer.key]) + ' header<span>' + outer.bytes + ' B</span></div>' +
-      '<div class="hf-split-d" style="flex:' + Math.max(1, innerBytes) + '">Data<span>' + innerBytes + ' B</span></div>' +
-      '</div>';
-
-    html += '<div class="hf" style="--a:var(' + outer.color + ')">';
-    html += '<div class="hf-title">' + esc(fmt.name) + ' · ' + outer.bytes + ' bytes</div>';
+  // ---------- per-request content (bytes, captions, colours, detail) ----------
+  function headerDiagram(l) {
+    const fmt = FORMATS[l.key];
+    let html = '<div class="hf" style="--a:var(' + l.color + ')">';
+    html += '<div class="hf-title">' + esc(fmt.name) + " · " + l.bytes + " bytes</div>";
     if (fmt.text) {
-      html += outer.fields.map(function (f, i) {
-        return '<div class="hf-line' + (i === 0 ? " hf-line-req" : "") + '">' + esc(f) + "</div>";
-      }).join("");
+      html += l.fields.map(function (f, i) { return '<div class="hf-line' + (i === 0 ? " hf-line-req" : "") + '">' + esc(f) + "</div>"; }).join("");
     } else {
       fmt.rows.forEach(function (row) {
         html += '<div class="hf-row">';
         row.cells.forEach(function (cell) {
           let body = '<span class="hf-l">' + esc(cell.label) + "</span>";
-          if (cell.flags) body += '<span class="hf-flags">' + cell.flags.map(function (fl) { return '<span title="' + fl + '">' + fl.split("").join("<br>") + "</span>"; }).join("") + "</span>";
+          if (cell.flags) body += '<span class="hf-flags">' + cell.flags.map(function (fl) { return '<span title="' + esc(fl) + '">' + esc(fl).split("").join("<br>") + "</span>"; }).join("") + "</span>";
           else if (cell.sub) body += '<span class="hf-s">' + esc(cell.sub) + "</span>";
           html += '<div class="hf-c' + (cell.variable ? " hf-var" : "") + '" style="flex:' + cell.w + '">' + body + "</div>";
         });
         html += "</div>";
       });
     }
-    html += "</div>";
+    return html + "</div>";
+  }
 
-    // the unified, collapsed data field
-    const desc = innerBytes === 0 ? "no encapsulated data — this request has an empty body"
-      : "everything inside the " + LNAME[outer.key] + " header, collapsed: " + innerNames;
-    html += dataField(innerBytes, desc);
+  function layerDetail(l) {
+    let html = '<div class="ld-fields">' + l.fields.map(function (f) { return '<div class="ld-field">' + esc(f) + "</div>"; }).join("") + "</div>";
+    if (l.key !== "app" && FORMATS[l.key]) html += headerDiagram(l);   // the raw data core has no header
+    html += '<div class="term"><div class="term-cmd">' + esc("$ " + l.tool.cmd) + '</div><pre class="term-out">' + esc(l.tool.out) + "</pre></div>";
     return html;
   }
 
-  function openDetail() {
-    const nAt = NODES[Math.round(progress)].n;          // layers on the packet here
-    const present = ORDER.slice(0, nAt);                // inner → outer
-    let bytes = 0; present.forEach(function (l) { bytes += l.bytes; });
-
-    detailSub.textContent =
-      "frame · " + bytes + " bytes on the wire · " + present.length + " layer" + (present.length > 1 ? "s" : "");
-
-    // Page 1 — Wireshark-style nested dissection, outermost header first.
-    let tree = "", indent = "";
-    present.slice().reverse().forEach(function (l) {
-      tree += indent + "▸ " + l.decode + "\n";
-      l.fields.forEach(function (f) { tree += indent + "    " + f + "\n"; });
-      indent += "  ";
+  function applyRequest() {
+    KEYS.forEach(function (key) {
+      const l = layerByKey(key), row = rowEls[key];
+      row.style.setProperty("--c", "var(" + l.color + ")");
+      // the data core isn't one of the OSI layers, so it gets no L-number badge
+      row.querySelector(".lrow-name").innerHTML =
+        (key === "app" ? "Data" : esc(LNAME[key]) + ' <b class="lnum">' + LAYERNUM[key] + "</b>") +
+        (l.tag ? '<span class="lrow-tag">' + esc(l.tag) + "</span>" : "");
+      row.querySelector(".lrow-cap").textContent = l.caption;
+      row.querySelector(".lrow-bytes").textContent = l.bytes + " B";
+      row.querySelector(".lrow-detail-in").innerHTML = layerDetail(l);
+      setRowOpen(key, false);
     });
-    detailDecode.textContent = tree.replace(/\n$/, "");
-    const outer = present[present.length - 1];
-    detailCmd.textContent = "$ " + outer.tool.cmd;
-    detailOut.textContent = outer.tool.out;
-
-    // Page 2 — the anatomy of the OUTERMOST header, with everything inside
-    // collapsed into one unified "Data" field.
-    detailHeaders.innerHTML = headerAnatomy(present);
-
-    setPage(0);
-    detail.hidden = false;
-    // the routing panes scroll horizontally (long tcpdump / decode lines);
-    // always reopen scrolled fully left, whatever a previous open left behind
-    detailDecode.scrollLeft = 0;
-    detailOut.scrollLeft = 0;
   }
-  function closeDetail() { detail.hidden = true; stage.focus(); }
 
-  // Pages switch on tab clicks only. We deliberately do NOT swipe between
-  // them: the routing page scrolls horizontally (long tcpdump / decode lines),
-  // and a horizontal swipe there should scroll that content, not flip pages.
-  pgtabs.forEach(function (t, i) { t.addEventListener("click", function () { setPage(i); }); });
+  // ---------- render one step ----------
+  function render() {
+    const present = presentAt(step);
+    const here = {};
+    present.forEach(function (l) { here[l.key] = true; });
+    const total = present.reduce(function (s, l) { return s + l.bytes; }, 0);
+    const dataBytes = layerByKey("app").bytes;
+    const node = NODES[step], ph = phaseAt(step), outer = present[present.length - 1];
 
-  let hitMoved = false, hitStart = 0;
-  hit.addEventListener("pointerdown", function (e) { hitStart = e.clientX + e.clientY; hitMoved = false; });
-  hit.addEventListener("pointermove", function (e) { if (Math.abs(e.clientX + e.clientY - hitStart) > 8) hitMoved = true; });
-  hit.addEventListener("click", function () { if (!hitMoved) openDetail(); });
-  hit.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail(); } });
-  document.getElementById("detail-close").addEventListener("click", closeDetail);
-  detail.addEventListener("click", function (e) { if (e.target === detail) closeDetail(); });
+    // journey strip
+    epClient.classList.toggle("active", ph.side === "client");
+    epServer.classList.toggle("active", ph.side === "server");
+    phaseTag.textContent = ph.word;
+    phaseTag.style.background = "var(" + outer.color + ")";
+    phaseNode.innerHTML = node.icon + " <b>" + esc(node.name) + '</b> <span class="ps">' + esc(node.sub) + "</span>";
 
-  // ---------- request generator ----------
-  const reqLabel = document.getElementById("req-label");
+    // boxy byte-grid (animates when a single layer is added/removed)
+    updateGrid(present);
+
+    // ratio readout
+    const pct = total > 0 ? Math.round(dataBytes / total * 100) : 0;
+    if (present.length === 1) propStat.innerHTML = "Just the data so far — <b>" + dataBytes + " B</b>, nothing wrapped yet.";
+    else if (dataBytes === 0) propStat.innerHTML = "<b>0 B</b> of <b>" + total + " B</b> is your data — this request is pure envelope.";
+    else propStat.innerHTML = "<b>" + dataBytes + " B</b> of <b>" + total + " B</b> on the wire is your data — just <b>" + pct + "%</b>.";
+
+    // stack rows
+    KEYS.forEach(function (key) { rowEls[key].classList.toggle("present", !!here[key]); });
+
+    // journey rail: current stop coloured by the current layer, earlier stops done
+    railDots.forEach(function (dot, i) {
+      const cur = i === step;
+      dot.classList.toggle("current", cur);
+      dot.classList.toggle("done", i < step);
+      dot.setAttribute("r", cur ? "6.5" : "4.5");
+      dot.style.fill = cur ? "var(" + outer.color + ")" : "";
+    });
+
+    $("prev").disabled = step === 0;
+    $("next").disabled = step === MAXSTEP;
+  }
+
+  // ---------- expand / collapse a layer ----------
+  function setRowOpen(key, open) {
+    rowEls[key].classList.toggle("open", open);
+    rowEls[key].querySelector(".lrow-head").setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  function toggleRow(key) { setRowOpen(key, !rowEls[key].classList.contains("open")); }
+
+  // ---------- navigation ----------
+  function goTo(s) { stopPlay(); step = clamp(s, 0, MAXSTEP); render(); }
+  function stepBy(d) { goTo(step + d); }
+  function stopPlay() { if (playTimer) { clearInterval(playTimer); playTimer = null; $("replay").classList.remove("playing"); } }
+  function replay() {                       // walk the whole path: wrap, wire, unwrap
+    stopPlay();
+    step = 0; render();
+    $("replay").classList.add("playing");
+    playTimer = setInterval(function () {
+      if (step >= MAXSTEP) { stopPlay(); return; }
+      step += 1; render();
+    }, 850);
+  }
+  $("prev").addEventListener("click", function () { stepBy(-1); });
+  $("next").addEventListener("click", function () { stepBy(1); });
+  $("replay").addEventListener("click", replay);
+
+  // ---------- request label + generator ----------
   function updateReqLabel() {
     reqLabel.innerHTML =
-      '<span class="req-method">' + esc(REQ.method) + '</span>' +
-      '<span class="req-path">' + esc(REQ.path) + '</span>' +
-      '<span class="req-body">' + (REQ.hasBody ? "with body" : "no body") + '</span>';
-    reqLabel.classList.remove("pulse");
-    void reqLabel.offsetWidth;          // restart the highlight animation
-    reqLabel.classList.add("pulse");
+      '<span class="req-method">' + esc(REQ.method) + "</span>" +
+      '<span class="req-path">' + esc(REQ.path) + "</span>" +
+      '<span class="req-body">' + (REQ.hasBody ? "with body" : "no body") + "</span>";
+    reqLabel.classList.remove("pulse"); void reqLabel.offsetWidth; reqLabel.classList.add("pulse");
   }
   function setRequest(req) {
+    stopPlay();
     REQ = req; ORDER = req.ORDER;
-    updateReqLabel();
-    // restart the journey at the client so the new request tells its story
-    stopTween();
-    anim = null; if (animRaf) { cancelAnimationFrame(animRaf); animRaf = null; }
-    progress = 0; lastCount = layersAt(0).length;
-    if (!detail.hidden) closeDetail();
-    render();
+    updateReqLabel(); applyRequest();
+    render();               // keep the reader's position on the path
   }
-  document.getElementById("new-req").addEventListener("click", function () {
-    setRequest(D.randomRequest());
-  });
+  $("new-req").addEventListener("click", function () { setRequest(D.randomRequest()); });
 
   // ---------- guide ----------
-  const help = document.getElementById("help");
-  const helpStart = document.getElementById("help-start");
-  // Start button only makes sense on the first-run guide; when reopened from
-  // the "?" button the reader is already moving, so a Close (✕) is enough.
+  const help = $("help"), helpStart = $("help-start");
   function openHelp(firstRun) { helpStart.hidden = !firstRun; help.hidden = false; }
   function closeHelp() { help.hidden = true; stage.focus(); }
-  document.getElementById("help-btn").addEventListener("click", function () { openHelp(false); });
-  document.getElementById("help-close").addEventListener("click", closeHelp);
+  $("help-btn").addEventListener("click", function () { openHelp(false); });
+  $("help-close").addEventListener("click", closeHelp);
   helpStart.addEventListener("click", closeHelp);
+
+  // ---------- keyboard: ← → step, Home/End jump, Esc closes the guide ----------
   document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") { if (!detail.hidden) closeDetail(); else if (!help.hidden) closeHelp(); }
+    if (!help.hidden) { if (e.key === "Escape") closeHelp(); return; }
+    if (e.key === "ArrowRight") { e.preventDefault(); stepBy(1); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); stepBy(-1); }
+    else if (e.key === "Home") { e.preventDefault(); goTo(0); }
+    else if (e.key === "End") { e.preventDefault(); goTo(MAXSTEP); }
   });
 
   // ---------- init ----------
-  window.addEventListener("resize", render);
   updateReqLabel();
+  applyRequest();
   render();
   openHelp(true);
 })();

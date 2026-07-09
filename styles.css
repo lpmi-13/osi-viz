@@ -11,7 +11,7 @@
   --line:    #26325a;
   --text:    #eaf0ff;
   --muted:   #9fb0d6;
-  --muted-2: #6b7ba6;
+  --muted-2: #8495bf;
   --accent:  #7fb0ff;
 
   /* Colour-blind-safe layer palette (Okabe–Ito derived).
@@ -110,6 +110,7 @@ body { display: flex; flex-direction: column; }
 .rdot { fill: var(--line); stroke: var(--bg); stroke-width: 1.5; cursor: pointer; transition: fill 200ms, r 160ms; }
 .rdot.done { fill: var(--muted-2); }
 .rdot.current { stroke: var(--text); stroke-width: 2; }   /* fill set inline to the current layer's colour */
+.rdot:focus-visible { outline: none; stroke: var(--accent); stroke-width: 4; }
 
 #phase { display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center; min-width: 0; }
 #phase-tag {

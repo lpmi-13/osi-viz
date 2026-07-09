@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>OSI Viz — how a request gets wrapped</title>
   <meta name="description" content="See every layer wrapping a single request at once — the bright core is the real data; everything else is delivery metadata. Step through how it gets wrapped and unwrapped." />
 
@@ -45,7 +45,7 @@
     <!-- the request's path: client → down the stack → underlay → up the stack → server -->
     <div id="journey">
       <div class="ep" id="ep-client"><span class="ep-icon">🖥️</span><span class="ep-name">Client</span><span class="ep-sub">pod</span></div>
-      <svg id="rail" viewBox="0 0 300 68" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <svg id="rail" viewBox="0 0 300 68" preserveAspectRatio="xMidYMid meet" role="group" aria-label="Journey steps from client wrapping, through the underlay, to server unwrapping">
         <polyline class="rail-arm" points="10,12 122,46" />
         <polyline class="rail-arm" points="178,46 290,12" />
         <line id="rail-underlay" x1="122" y1="46" x2="178" y2="46" />
@@ -67,7 +67,7 @@
       </svg>
       <div class="ep" id="ep-server"><span class="ep-icon">🖥️</span><span class="ep-name">Server</span><span class="ep-sub">pod</span></div>
     </div>
-    <div id="phase"><span id="phase-tag"></span><span id="phase-node"></span></div>
+    <div id="phase" aria-live="polite"><span id="phase-tag"></span><span id="phase-node"></span></div>
 
     <!-- signal vs envelope, as a boxy byte-grid (like the favicon) -->
     <div id="proportion">
@@ -93,9 +93,9 @@
 
   <!-- one-time guide -->
   <div id="help" class="overlay" hidden>
-    <div class="sheet-card" role="dialog" aria-modal="true" aria-label="How to read this">
+    <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="help-title" tabindex="-1">
       <button class="close" id="help-close" aria-label="Close">✕</button>
-      <h2>One request, wrapped for delivery</h2>
+      <h2 id="help-title">One request, wrapped for delivery</h2>
       <p>You start with just the <b>real data</b> at the client — one pod calling another inside a Kubernetes cluster. Step forward with <b>Next</b> (or the arrow keys) and watch each layer wrap around it, down the client's stack, across the underlay, and back up the server's stack.</p>
       <p>The bar shows the ratio — how little of what's finally on the wire is the thing you actually asked for. A <b>GET</b> or <b>OPTIONS</b> has no body at all, so it's pure envelope.</p>
       <p class="muted"><b>Tap any layer</b> to see its real header fields, as <code>tcpdump</code> would show them. The rail up top tracks where you are on the path. Hit <b>🎲 New request</b> for a fresh POST, GET, preflight and more.</p>

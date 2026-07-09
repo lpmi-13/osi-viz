@@ -156,7 +156,15 @@
   // the journey rail's stops (client → down the stack → underlay → up → server)
   const railDots = Array.prototype.slice.call(document.querySelectorAll(".rdot"));
   railDots.forEach(function (dot) {
-    dot.addEventListener("click", function () { goTo(parseInt(dot.dataset.step, 10)); });
+    const dotStep = parseInt(dot.dataset.step, 10);
+    const node = NODES[dotStep];
+    dot.setAttribute("tabindex", "0");
+    dot.setAttribute("role", "button");
+    dot.setAttribute("aria-label", "Go to step " + (dotStep + 1) + ": " + node.name + ", " + node.sub);
+    dot.addEventListener("click", function () { goTo(dotStep); });
+    dot.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goTo(dotStep); }
+    });
   });
 
   // ---------- per-request content (bytes, captions, colours, detail) ----------
@@ -236,6 +244,7 @@
       const cur = i === step;
       dot.classList.toggle("current", cur);
       dot.classList.toggle("done", i < step);
+      dot.setAttribute("aria-current", cur ? "step" : "false");
       dot.setAttribute("r", cur ? "6.5" : "4.5");
       dot.style.fill = cur ? "var(" + outer.color + ")" : "";
     });
@@ -289,16 +298,34 @@
   $("new-req").addEventListener("click", function () { setRequest(D.randomRequest()); });
 
   // ---------- guide ----------
-  const help = $("help"), helpStart = $("help-start");
-  function openHelp(firstRun) { helpStart.hidden = !firstRun; help.hidden = false; }
-  function closeHelp() { help.hidden = true; stage.focus(); }
+  const help = $("help"), helpStart = $("help-start"), helpCard = help.querySelector(".sheet-card");
+  let returnFocusTo = null;
+  function openHelp(firstRun) {
+    returnFocusTo = document.activeElement;
+    helpStart.hidden = !firstRun;
+    help.hidden = false;
+    (firstRun ? helpStart : $("help-close")).focus();
+  }
+  function closeHelp() {
+    help.hidden = true;
+    if (returnFocusTo && typeof returnFocusTo.focus === "function") returnFocusTo.focus();
+    else stage.focus();
+  }
+  function keepFocusInHelp(e) {
+    if (e.key !== "Tab" || help.hidden) return;
+    const focusable = Array.prototype.slice.call(helpCard.querySelectorAll("button:not([hidden])"));
+    if (!focusable.length) return;
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
   $("help-btn").addEventListener("click", function () { openHelp(false); });
   $("help-close").addEventListener("click", closeHelp);
   helpStart.addEventListener("click", closeHelp);
 
   // ---------- keyboard: ← → step, Home/End jump, Esc closes the guide ----------
   document.addEventListener("keydown", function (e) {
-    if (!help.hidden) { if (e.key === "Escape") closeHelp(); return; }
+    if (!help.hidden) { if (e.key === "Escape") closeHelp(); else keepFocusInHelp(e); return; }
     if (e.key === "ArrowRight") { e.preventDefault(); stepBy(1); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); stepBy(-1); }
     else if (e.key === "Home") { e.preventDefault(); goTo(0); }

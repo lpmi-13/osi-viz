@@ -20,6 +20,8 @@ window.OSI = (function () {
   const byteLen = function (s) { return s ? enc.encode(s).length : 0; };   // real UTF-8 length
   const rint = function (a, b) { return a + Math.floor(Math.random() * (b - a + 1)); };
   const pick = function (a) { return a[Math.floor(Math.random() * a.length)]; };
+  const prettyJson = function (value) { return JSON.stringify(value, null, 2); };
+  const urlPath = function (path) { return path.replace(/:/g, "-"); };
 
   const HOST = "api-service";
   const NAMES = ["ada", "grace", "lin", "kofi", "mira", "sam", "yuki", "noor"];
@@ -57,29 +59,30 @@ window.OSI = (function () {
   }
   // small bodies (≈5 rows)
   function post() {
-    const body = JSON.stringify({ name: pick(NAMES), role: pick(ROLES) });
+    const body = prettyJson({ name: pick(NAMES), role: pick(ROLES) });
     return withBody("POST", "/api/users", body, "201 Created");
   }
   function patch() {
-    const body = JSON.stringify({ status: pick(["active", "suspended", "invited"]) });
+    const body = prettyJson({ status: pick(["active", "suspended", "invited"]) });
     return withBody("PATCH", "/api/users/" + rint(1000, 99999), body, "200 OK");
   }
   // medium bodies (≈6 rows)
   function postProfile() {
-    const body = JSON.stringify({ name: pick(NAMES), email: pick(NAMES) + "@example.com", role: pick(ROLES), team: pick(TEAMS) });
+    const body = prettyJson({ name: pick(NAMES), email: pick(NAMES) + "@example.com", role: pick(ROLES), team: pick(TEAMS) });
     return withBody("POST", "/api/users", body, "201 Created");
   }
   function putConfig() {
-    const body = JSON.stringify({ replicas: rint(2, 9), image: "api:" + rint(1, 40) + ".2", env: pick(["prod", "staging", "dev"]), team: pick(TEAMS) });
+    const body = prettyJson({ replicas: rint(2, 9), image: "api:" + rint(1, 40) + ".2", env: pick(["prod", "staging", "dev"]), team: pick(TEAMS) });
     return withBody("PUT", "/api/deployments/" + pick(TEAMS) + "-api", body, "200 OK");
   }
   // the big one — a batch create that reaches the box's 7-row cap. Kept rare.
   function postBatch() {
     const users = [{ name: pick(NAMES), role: pick(ROLES), team: pick(TEAMS) },
       { name: pick(NAMES), role: pick(ROLES), team: pick(TEAMS) }];
-    return withBody("POST", "/api/users:batchCreate", JSON.stringify({ users: users }), "201 Created");
+    return withBody("POST", "/api/users/batch-create", prettyJson({ users: users }), "201 Created");
   }
   function withBody(method, path, body, status) {
+    path = urlPath(path);
     return {
       method: method, path: path, body: body,
       headers: [method + " " + path + " HTTP/2", "host: " + HOST,
@@ -106,7 +109,7 @@ window.OSI = (function () {
     const app = r.body
       ? { key: "app", color: "--c-app", bytes: bodyBytes,
           caption: "The request itself — the only bytes the app actually cares about.",
-          fields: [r.body + "   (" + bodyBytes + " bytes — the application payload)"],
+          fields: [r.body + "\n\n(" + bodyBytes + " bytes — the application payload)"],
           tool: { cmd: "# what the app handed to the socket", out: r.body } }
       : { key: "app", color: "--c-app", bytes: 0,
           caption: "A " + r.method + " has no body — the request is just the method and path.",
@@ -151,7 +154,7 @@ window.OSI = (function () {
 
   // A fixed, accurate POST for first load — a real body, stable across reloads.
   function defaultRequest() {
-    const body = '{"name":"ada","role":"engineer"}';
+    const body = prettyJson({ name: "ada", role: "engineer" });
     return model(withBody("POST", "/api/users", body, "201 Created"));
   }
   function randomRequest() { return model(pick(CATALOG)()); }

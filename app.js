@@ -245,7 +245,11 @@
     rowEls[key].classList.toggle("open", open);
     rowEls[key].querySelector(".lrow-head").setAttribute("aria-expanded", open ? "true" : "false");
   }
-  function toggleRow(key) { setRowOpen(key, !rowEls[key].classList.contains("open")); }
+  function toggleRow(key) {
+    const shouldOpen = !rowEls[key].classList.contains("open");
+    if (shouldOpen) KEYS.forEach(function (otherKey) { if (otherKey !== key) setRowOpen(otherKey, false); });
+    setRowOpen(key, shouldOpen);
+  }
 
   // ---------- navigation ----------
   function goTo(s) { stopPlay(); step = clamp(s, 0, MAXSTEP); render(); }

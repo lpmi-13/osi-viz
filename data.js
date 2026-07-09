@@ -135,7 +135,7 @@ window.OSI = (function () {
       tool: r.tool };
 
     const tls = { key: "tls", color: "--c-tls", bytes: tlsBytes,
-      caption: "Encrypts everything above so nothing on the network can read it.",
+      caption: "Encrypts everything from the application layer so nothing on the network can read it.",
       fields: ["TLSv1.3 · AES-128-GCM", "record: Application Data (23)", "wraps the HTTP request above"],
       tool: { cmd: "openssl s_client -connect " + HOST + ":443",
         out: "Cipher: TLS_AES_128_GCM_SHA256\nApplication Data (23), len " + (httpBytes + bodyBytes) + "   # ciphertext" } };

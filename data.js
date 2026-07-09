@@ -28,6 +28,13 @@ window.OSI = (function () {
   const ROLES = ["engineer", "admin", "analyst", "viewer", "operator"];
   const TEAMS = ["platform", "payments", "growth", "infra", "data"];
 
+  // Keep the byte-grid honest: app.js renders at most 7 rows of 50 bytes.
+  // The fixed TLS/TCP/IP/VXLAN overhead is 119 B, so request bodies must leave
+  // enough room for HTTP framing plus every colored header band.
+  const GRID_BYTE_CAP = 7 * 50;
+  const FIXED_HEADER_BYTES = 29 + 20 + 20 + 50;
+
+
   // ---- L7 request catalogue --------------------------------------------
   // Each returns { method, path, body|null, headers[], note?, tool:{cmd,out} }.
   function get() {
@@ -77,16 +84,22 @@ window.OSI = (function () {
   }
   // the big one — a batch create that reaches the box's 7-row cap. Kept rare.
   function postBatch() {
-    const users = [{ name: pick(NAMES), role: pick(ROLES), team: pick(TEAMS) },
-      { name: pick(NAMES), role: pick(ROLES), team: pick(TEAMS) }];
+    const users = [{ name: pick(NAMES), role: pick(ROLES), team: pick(TEAMS) }];
     return withBody("POST", "/api/users/batch-create", prettyJson({ users: users }), "201 Created");
   }
   function withBody(method, path, body, status) {
     path = urlPath(path);
+    const headers = function (b) { return [method + " " + path + " HTTP/2", "host: " + HOST,
+      "content-type: application/json", "content-length: " + byteLen(b)]; };
+    if (byteLen(body) + byteLen(headers(body).join("\r\n") + "\r\n\r\n") + FIXED_HEADER_BYTES > GRID_BYTE_CAP) {
+      body = prettyJson({
+        sample: "trimmed for the 7-row byte grid",
+        bytes: "payload capped so HTTP/TLS/TCP/IP/VXLAN bands remain visible"
+      });
+    }
     return {
       method: method, path: path, body: body,
-      headers: [method + " " + path + " HTTP/2", "host: " + HOST,
-        "content-type: application/json", "content-length: " + byteLen(body)],
+      headers: headers(body),
       tool: { cmd: "curl -X " + method + " https://" + HOST + path + " \\\n    -H 'content-type: application/json' -d '" + body + "'",
         out: "> " + method + " " + path + " HTTP/2\n> content-length: " + byteLen(body) + "\n" + body + "\n<\n< HTTP/2 " + status } };
   }

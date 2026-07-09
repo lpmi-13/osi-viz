@@ -77,28 +77,30 @@
     row.querySelector(".lrow-head").addEventListener("click", function () { toggleRow(key); });
   });
 
-  // ---------- boxy byte-grid: draw `layers` as cells, bottom-anchored. The layer
-  //            at `animIdx` uses `animBytes` (fractional) so it can grow/shrink. ----------
-  function drawGrid(layers, animIdx, animBytes) {
-    const bAt = function (i) { return i === animIdx ? animBytes : layers[i].bytes; };
-    let total = 0, off = 0, i;
-    for (i = 0; i < layers.length; i++) total += bAt(i);
-    const H = Math.min(MAX_ROWS, Math.max(1, Math.ceil(total / GRID_ROW))) * GROW;   // cap at 7 rows
-    const cells = [];
-    for (i = 0; i < layers.length; i++) {
-      let b = off; const e = off + bAt(i);
+  // ---------- boxy byte-grid ----------
+  // Cells are laid out once at fixed positions (bottom-anchored, 50 bytes/row,
+  // right → left). A viewBox "window" reveals the bottom `winH` of that layout,
+  // so the box height can be eased *continuously* — no row-by-row jumping.
+  function boxH(layers) {
+    let t = 0; layers.forEach(function (l) { t += l.bytes; });
+    return Math.min(MAX_ROWS, Math.max(1, Math.ceil(t / GRID_ROW))) * GROW;      // cap at 7 rows
+  }
+  function layoutCells(layers) {
+    const fullH = boxH(layers), cells = [];
+    let off = 0;
+    layers.forEach(function (l) {
+      let b = off; const e = off + l.bytes;
       while (b < e) {
         const row = Math.floor(b / GRID_ROW), p = b % GRID_ROW;
         const runEnd = Math.min(e, (row + 1) * GRID_ROW), run = runEnd - b;
-        cells.push({ x: GRID_W - (p + run) * GBW, y: H - (row + 1) * GROW, w: run * GBW, color: layers[i].color });
+        cells.push({ x: GRID_W - (p + run) * GBW, y: fullH - (row + 1) * GROW, w: run * GBW, color: l.color });
         b = runEnd;
       }
       off = e;
-    }
-    propGrid.setAttribute("viewBox", "0 0 " + GRID_W + " " + H);   // box hugs its rows
-    const gh = (H - 1.5).toFixed(2);
-    gridFrame.setAttribute("height", gh);
-    gridClipRect.setAttribute("height", gh);                       // clip cells to the rounded box
+    });
+    return { cells: cells, fullH: fullH };
+  }
+  function paintCells(cells) {
     while (gcellPool.length < cells.length) {
       const r = document.createElementNS(SVGNS, "rect");
       r.setAttribute("stroke", "rgba(6,10,22,.85)"); r.setAttribute("stroke-width", "0.8");
@@ -113,23 +115,37 @@
       r.style.display = "";
     });
   }
+  function setWindow(fullH, winH) {
+    const minY = fullH - winH;
+    propGrid.setAttribute("viewBox", "0 " + minY.toFixed(2) + " " + GRID_W + " " + winH.toFixed(2));
+    const fy = (minY + 0.75).toFixed(2), fh = (winH - 1.5).toFixed(2);
+    gridFrame.setAttribute("y", fy); gridFrame.setAttribute("height", fh);
+    gridClipRect.setAttribute("y", fy); gridClipRect.setAttribute("height", fh);
+  }
+  function drawGrid(layers) {                       // settled: full window
+    const lay = layoutCells(layers);
+    paintCells(lay.cells);
+    setWindow(lay.fullH, lay.fullH);
+  }
 
-  // Animate the box when a single layer is added/removed; snap on jumps or reduced motion.
+  // Animate the box when a single layer is added/removed; snap on jumps / reduced motion.
   function updateGrid(present) {
     const n = present.length;
     if (gridRaf) { cancelAnimationFrame(gridRaf); gridRaf = null; }
-    if (reduceMotion || Math.abs(n - gridN) !== 1) { gridN = n; drawGrid(present, -1, 0); return; }
+    if (reduceMotion || Math.abs(n - gridN) !== 1) { gridN = n; drawGrid(present); return; }
     const dir = n > gridN ? "in" : "out";
-    const layers = dir === "in" ? ORDER.slice(0, n) : ORDER.slice(0, n + 1);   // include the leaving layer
-    const idx = dir === "in" ? n - 1 : n;
-    const full = layers[idx].bytes;
+    const drawn = dir === "in" ? present : ORDER.slice(0, n + 1);   // 'out' keeps the leaving layer visible
+    const lay = layoutCells(drawn);
+    paintCells(lay.cells);                                          // static during the whole transition
+    const startH = dir === "in" ? boxH(ORDER.slice(0, n - 1)) : lay.fullH;
+    const endH = dir === "in" ? lay.fullH : boxH(present);
     gridN = n;
     const t0 = performance.now();
     (function frame(now) {
       const e = easeOutCubic(Math.min(1, (now - t0) / GRID_DUR));
-      drawGrid(layers, idx, full * (dir === "in" ? e : 1 - e));
+      setWindow(lay.fullH, startH + (endH - startH) * e);
       if (e < 1) gridRaf = requestAnimationFrame(frame);
-      else { gridRaf = null; drawGrid(present, -1, 0); }
+      else { gridRaf = null; drawGrid(present); }
     })(t0);
   }
 

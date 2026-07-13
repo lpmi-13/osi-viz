@@ -190,7 +190,8 @@
   }
 
   function layerDetail(l) {
-    let html = '<div class="ld-fields">' + l.fields.map(function (f) { return '<div class="ld-field">' + esc(f) + "</div>"; }).join("") + "</div>";
+    let html = '<div class="ld-fields">' + l.fields.map(function (f) { return '<div class="ld-field">' + esc(f) + "</div>"; }).join("") +
+      (l.cargo ? '<div class="ld-field ld-cargo">' + esc(l.cargo) + "</div>" : "") + "</div>";
     if (l.key !== "app" && FORMATS[l.key]) html += headerDiagram(l);   // the raw data core has no header
     html += '<div class="term"><div class="term-cmd">' + esc("$ " + l.tool.cmd) + '</div><pre class="term-out">' + esc(l.tool.out) + "</pre></div>";
     return html;

@@ -155,6 +155,7 @@ window.OSI = (function () {
     const vxlan = { key: "vxlan", color: "--c-vxlan", bytes: 50, tag: "overlay only",
       caption: "Overlay networks only (Kubernetes, Tailscale…): the CNI wraps the whole frame in an outer packet so it can cross the physical underlay. Plain host-to-host traffic has no VXLAN.",
       fields: ["outer 192.168.1.10 → 192.168.1.11", "udp 4789 · vni 42 (inner L2 frame over the underlay)", "added by the pod's CNI (Calico / Cilium / Flannel …)"],
+      cargo: "inner smac 0a:58:0a:f4:01:05 → dmac 0a:58:0a:f4:02:0a · the tunneled L2 frame, invisible to the underlay",
       tool: { cmd: "tcpdump -ni eth0 'udp port 4789'",
         out: "IP 192.168.1.10 > 192.168.1.11: VXLAN vni 42\n  IP 10.244.1.5." + sport + " > 10.244.2.10.443: tcp " + l4payload } };
 

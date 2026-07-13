@@ -161,6 +161,7 @@ body { display: flex; flex-direction: column; }
 .ld-fields { border-top: 1px solid var(--line); }
 .ld-field { font-family: ui-monospace, monospace; font-size: 12px; color: #cfe0ff; padding: 6px 0; border-bottom: 1px solid rgba(38,50,90,.4); white-space: pre-wrap; word-break: break-word; }
 .ld-field:last-child { border-bottom: 0; }
+.ld-field.ld-cargo { color: var(--muted-2); font-style: italic; background: repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(120,150,210,.05) 6px, rgba(120,150,210,.05) 12px); }
 .lrow-detail-in .hf, .lrow-detail-in .term { margin-top: 10px; }
 
 /* ---------- header anatomy diagram (reused inside a layer's detail) ---------- */
